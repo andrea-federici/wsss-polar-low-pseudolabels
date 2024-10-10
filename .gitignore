@@ -1,0 +1,15 @@
+# Python files
+__pycache__/
+
+# MacOS system files
+.DS_Store
+
+# Data files
+/data
+
+# Lightning files
+/lightning_logs
+
+# Model files
+/checkpoints
+/models
