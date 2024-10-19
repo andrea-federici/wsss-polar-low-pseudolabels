@@ -5,7 +5,7 @@ __pycache__/
 .DS_Store
 
 # VSCode files
-/vscode
+/.vscode
 
 # Data files
 /data
