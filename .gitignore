@@ -4,6 +4,9 @@ __pycache__/
 # MacOS system files
 .DS_Store
 
+# VSCode files
+/vscode
+
 # Data files
 /data
 
