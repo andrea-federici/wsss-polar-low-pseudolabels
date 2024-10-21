@@ -18,7 +18,5 @@ __pycache__/
 /models
 
 # Notebooks
-/benchmark_data_loading.ipynb
 /model_container.ipynb
 /models.ipynb
-/transformation_tester.ipynb
