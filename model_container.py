@@ -142,10 +142,13 @@ class ModelContainer(pl.LightningModule):
 
         ig = IntegratedGradients(self.forward)
 
+        # Get predicted class
+        logits = self(input_image)
+        predicted_class = torch.argmax(logits, dim=1).item()
+
         # If the target class is not specified, use the predicted class
         if target_class is None:
-            logits = self(input_image)
-            target_class = torch.argmax(logits, dim=1).item()
+            target_class = predicted_class
 
         attributions, _ = ig.attribute(
             input_image,
@@ -166,12 +169,31 @@ class ModelContainer(pl.LightningModule):
         # Enhance contrast
         # norm_attributions = cv2.equalizeHist((norm_attributions * 255).astype(np.uint8)) / 255.0
 
-        return norm_attributions
-    
-    def overlay_green_heatmap(self, original_image, heatmap, alpha: float = 0.6, threshold: float = 0.5, gaussian_blur_size: int = 15):
+        return norm_attributions, predicted_class
+
+    def overlay_green_heatmap(self, original_image, heatmap, predicted_class, target_class=None, alpha: float = 0.6, percentile_neg: float = 97, percentile_pos: float = 98, gaussian_blur_size: int = 15, verbose=False):
         image_np = np.array(original_image) # Convert the PIL image to a NumPy array
 
         heatmap_resized = cv2.resize(heatmap, (image_np.shape[1], image_np.shape[0]))
+
+        # If the target class is not specified, use the predicted class
+        if target_class is None:
+            target_class = predicted_class
+
+        # Set the percentile based on the target class
+        if target_class == 0:
+            percentile = percentile_neg
+        else:
+            percentile = percentile_pos
+
+        # Flatten the heatmap
+        heatmap_flattened = heatmap_resized.flatten()
+
+        # Calculate the threshold based on the percentile
+        threshold = np.percentile(heatmap_flattened, percentile)
+
+        if verbose:
+            print(f'Threshold for class {target_class} (percentile {percentile}): {threshold}')
 
         # Apply threshold to focus on high attribution regions
         heatmap_thresholded = np.where(heatmap_resized >= threshold, heatmap_resized, 0)
