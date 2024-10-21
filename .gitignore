@@ -16,7 +16,3 @@ __pycache__/
 # Model files
 /checkpoints
 /models
-
-# Notebooks
-/model_container.ipynb
-/models.ipynb
