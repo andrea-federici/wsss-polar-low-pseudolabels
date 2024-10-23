@@ -13,6 +13,9 @@ __pycache__/
 # Lightning files
 /lightning_logs
 
-# Model files
+# Models
 /checkpoints
 /models
+
+# Notebooks for generating .py files
+/notebooks
