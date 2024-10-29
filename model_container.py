@@ -14,24 +14,31 @@ import torch.optim as optim
 from torchvision.transforms import ToPILImage
 import pytorch_lightning as pl
 from captum.attr import (
-    IntegratedGradients,
-    LayerGradCam
+    DeepLift,
+    IntegratedGradients
 )
 
+from verbose_util import init_verbose
+
+
 class ModelContainer(pl.LightningModule):
-    def __init__(self, model: nn.Module, criterion: nn.Module, optimizer: optim.Optimizer = None):
+
+    def __init__(self, model: nn.Module, criterion: nn.Module, optimizer: optim.Optimizer = None, verbose=False):
         super(ModelContainer, self).__init__()
         self.model = model
         self.criterion = criterion # Loss function
         self.optimizer = optimizer # Defaults to Adam if not given as input
+        self.verboseprint = init_verbose(verbose) # Initialize the verboseprint function
         self.train_losses = [] # Stores train losses for each epoch
         self.train_outputs = [] # Stores training outputs across steps
         self.val_losses = [] # Stores validation losses for each epoch
         self.val_outputs = [] # Stores validation outputs across steps
 
+
     # The 'forward' method is called automatically when the model is invoked on input data
     def forward(self, x):
         return self.model(x) # self.model(x) calls the 'forward' method of the contained model
+
 
     # Called for each batch of data
     def training_step(self, batch, batch_idx):
@@ -47,6 +54,7 @@ class ModelContainer(pl.LightningModule):
         })
 
         return loss # Return the loss for optimization
+
 
     # Called at the end of every training epoch to aggregate metrics and print them
     def on_train_epoch_end(self):
@@ -71,6 +79,7 @@ class ModelContainer(pl.LightningModule):
 
         self.train_outputs.clear() # Clear the outputs for the next epoch
 
+
     def validation_step(self, batch, batch_idx):
         images, labels = batch
         logits = self(images)
@@ -86,6 +95,7 @@ class ModelContainer(pl.LightningModule):
         })
 
         self.log('val_loss', loss, prog_bar=True)
+
 
     # At the end of each validation epoch, this method aggregates the outputs from all validation batches
     def on_validation_epoch_end(self):
@@ -110,27 +120,6 @@ class ModelContainer(pl.LightningModule):
 
         self.val_outputs.clear() # Clear validation outputs for the next epoch
 
-    def generate_gradcam_heatmap(self, input_image, layer=None):
-        # If no layer is specified, use the last layer of the feature extractor
-        if layer is None:
-            layer = self.model.get_last_conv_layer()
-
-        gradcam = LayerGradCam(self.model, layer) # Initialize GradCAM method
-
-        self.eval()
-
-        input_image = input_image.to(self.device) # Move image to the same device as the model
-
-        logits = self(input_image)
-        target_class = torch.argmax(logits, dim=1).item() # Get the predicted class
-
-        attr = gradcam.attribute(input_image, target_class) # Compute the GradCAM attributions
-        attr = attr.squeeze().detach().cpu().numpy() # Convert to NumPy format
-
-        heatmap = np.maximum(attr, 0) # Remove negative values in the heatmap
-        norm_heatmap = heatmap / np.max(heatmap) if np.max(heatmap) != 0 else 1 # Normalize the heatmap
-
-        return norm_heatmap
 
     def generate_integrated_gradients_heatmap(self, input_image, target_class=None, n_steps=50, baseline=None):
         self.eval()
@@ -170,6 +159,59 @@ class ModelContainer(pl.LightningModule):
         # norm_attributions = cv2.equalizeHist((norm_attributions * 255).astype(np.uint8)) / 255.0
 
         return norm_attributions, predicted_class
+    
+
+    def generate_deeplift_heatmap(self, input_image, baseline=None, target_class=None):
+        self.verboseprint('Generating DeepLift heatmap...')
+        
+        self.eval()
+
+        input_image = input_image.to(self.device)
+
+        if baseline is None:
+            baseline = torch.zeros_like(input_image)
+        
+        self.verboseprint('Input image shape:', input_image.shape)
+        self.verboseprint('Baseline shape:', baseline.shape)
+        
+        # Initialize DeepLift
+        deeplift = DeepLift(self.model)
+
+        # If the target class is not specified, use the predicted class
+        if target_class is None:
+            self.verboseprint('Target class not specified. Using predicted class...')
+            logits = self(input_image)
+            self.verboseprint('Logits:', logits)
+            predicted_class = torch.argmax(logits, dim=1).item()
+            target_class = predicted_class
+        
+        self.verboseprint(f'Target class: {target_class}')
+
+        attributions = deeplift.attribute(
+            input_image,
+            baselines=baseline,
+            target=target_class
+        )
+
+        self.verboseprint(f'Attributions shape: {attributions.shape}')
+        self.verboseprint(f'Attributions min: {attributions.min()}')
+        self.verboseprint(f'Attributions max: {attributions.max()}')
+        self.verboseprint(f'Attributions mean: {attributions.mean()}')
+
+        # Convert the attributions to a NumPy array
+        attributions = attributions.squeeze().detach().cpu().numpy()
+        
+        # Normalize the attributions
+
+        attributions = np.sum(attributions, axis=0) # Sum across channels
+        self.verboseprint(f'Attributions after summation: {attributions}')
+        
+        # attributions = attributions.mean(dim=1).squeeze()
+        attributions = np.maximum(attributions, 0) # Remove negative values
+        norm_attributions = attributions / attributions.max() # Normalize between 0 and 1
+
+        return norm_attributions
+
 
     def overlay_green_heatmap(self, original_image, heatmap, predicted_class, target_class=None, alpha: float = 0.6, percentile_neg: float = 97, percentile_pos: float = 98, gaussian_blur_size: int = 15, verbose=False):
         image_np = np.array(original_image) # Convert the PIL image to a NumPy array
@@ -211,21 +253,6 @@ class ModelContainer(pl.LightningModule):
 
         return image_with_heatmap_pil
 
-
-    # Visualize the heatmap overlay on the original image
-    def overlay_heatmap(self, original_image, heatmap, alpha: float = 0.4, colormap: int = cv2.COLORMAP_JET):
-        image_np = np.array(original_image) # Convert the PIL image to a NumPy array
-
-        heatmap_resized = cv2.resize(heatmap, (image_np.shape[1], image_np.shape[0])) # Resize the heatmap to match the original image size
-
-        heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_resized), colormap) # Apply color map to heatmap
-        heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB) # Convert color space from BGR (Blue, Green, Red) to RGB
-
-        image_with_heatmap = cv2.addWeighted(heatmap_colored, alpha, image_np, 1 - alpha, 0) # Overlay the heatmap on the original image
-
-        image_with_heatmap_pil = ToPILImage()(image_with_heatmap) # Convert the NumPy array back to PIL image
-
-        return image_with_heatmap_pil
 
     def configure_optimizers(self):
         if self.optimizer is None:

@@ -1,7 +1,10 @@
 
 import torch
 import torch.nn as nn
+from torchinfo import summary
 import timm
+
+import config
 
 class XceptionModel(nn.Module):
     def __init__(self, num_classes=2):
@@ -13,7 +16,6 @@ class XceptionModel(nn.Module):
         # Inspect feature_info to determine the number of channels. For Xception this is typically 2048.
         feature_info = self.feature_extractor.feature_info
         num_channels = feature_info[-1]['num_chs']
-        print(f'Number of channels in the last feature map: {num_channels}')
 
         # Classifier
         self.classifier = nn.Sequential(
@@ -42,6 +44,7 @@ class XceptionModel(nn.Module):
         if last_conv is None:
             raise ValueError("No convolutional layer found in the feature extractor.")
         return last_conv
+
 
 class ConvModel(nn.Module):
     def __init__(self, input_channels=3, num_classes=2):
@@ -100,3 +103,9 @@ class ConvModel(nn.Module):
             if isinstance(layer, nn.Conv2d):
                 return layer
         raise ValueError("No convolutional layer found in the feature extractor.")
+
+
+# model = XceptionModel()
+# model.to(config.device)
+# summary(model, input_size=(1, 3, 299, 299), depth=6) # Xception model
+
