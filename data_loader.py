@@ -9,7 +9,7 @@ import numpy as np
 def get_transforms(resized_image_res):
     # Transformations for the training set
     data_augmentation = transforms.Compose([
-        transforms.RandomAffine(degrees=45, translate=(0.1, 0.1), scale=(0.8, 1.2), fill=0),  # Random Rotation, Translation, and Zoom
+        transforms.RandomAffine(degrees=45, translate=(0.35, 0.35), scale=(0.8, 1.2), fill=0),  # Random Rotation, Translation, and Zoom
         transforms.RandomHorizontalFlip(),  # Random Horizontal Flip
         transforms.RandomVerticalFlip(),  # Random Vertical Flip
         transforms.Resize(resized_image_res),  # Resize

@@ -147,6 +147,8 @@ class ModelContainer(pl.LightningModule):
             return_convergence_delta=True
         )
 
+        print(f'Attributions shape: {attributions.shape}')
+
         attributions = attributions.squeeze().detach().cpu().numpy() # Convert to NumPy
 
         # Aggregate attributions across channels
@@ -160,6 +162,29 @@ class ModelContainer(pl.LightningModule):
 
         return norm_attributions, predicted_class
     
+    def generate_hurricane_mask(self, input_image, heatmap, threshold=0.5, min_area=50):
+        original_size = input_image[2:].shape # Assume the input image is in the format (C, H, W)
+        heatmap_resized = cv2.resize(heatmap, (original_size[1], original_size[0]), interpolation=cv2.INTER_LINEAR)
+
+        # Step 1: Binarize the enlarged heatmap using the specified threshold
+        binary_mask = np.where(heatmap_resized >= threshold, 1, 0).astype(np.uint8)
+
+        # Step 2: Apply morphological operations
+
+        # (1) Closing: Dilate, then erode to merge dense regions
+        kernel = np.ones((5, 5), np.uint8)
+        closed_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, kernel)
+
+        # (2) Area opening: Remove small objects based on minimum area
+        contours, _ = cv2.findContours(closed_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            if cv2.contourArea(contour) < min_area:
+                cv2.drawContours(closed_mask, [contour], -1, 0, -1)
+
+        # (3) Second closing: Close larger gaps in the mask
+        final_mask = cv2.morphologyEx(closed_mask, cv2.MORPH_CLOSE, kernel)
+
+        return final_mask    
 
     def generate_deeplift_heatmap(self, input_image, baseline=None, target_class=None):
         self.verboseprint('Generating DeepLift heatmap...')
@@ -256,6 +281,9 @@ class ModelContainer(pl.LightningModule):
 
     def configure_optimizers(self):
         if self.optimizer is None:
-            # If no optimizer is provided, use Adam as default
+            # self.model.parameters() returns an iterator over all model parameters (weights and biases)
+            # Each parameter is a tensor, and each tensor has a 'requires_grad' attribute, which is True if the parameter should be updated during backpropagation, and False otherwise.
+            # filter() is a function that takes a function and an iterable as input. It applies the function to each element of the iterable and returns only the elements for which the function returns True.
+            # This line filters out the parameters that should not be updated during backpropagation (frozen layers)
             self.optimizer = optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.001)
         return self.optimizer

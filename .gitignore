@@ -10,6 +10,9 @@ __pycache__/
 # Data files
 /data
 
+# Local test files
+/local_test_files
+
 # Lightning files
 /lightning_logs
 

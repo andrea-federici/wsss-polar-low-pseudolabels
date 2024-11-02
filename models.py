@@ -13,10 +13,6 @@ class XceptionModel(nn.Module):
         # Feature Extractor
         self.feature_extractor = timm.create_model('xception', pretrained=True, features_only=True)
 
-        # Inspect feature_info to determine the number of channels. For Xception this is typically 2048.
-        feature_info = self.feature_extractor.feature_info
-        num_channels = feature_info[-1]['num_chs']
-
         # Classifier
         self.classifier = nn.Sequential(
             nn.Linear(in_features=2048, out_features=32),
