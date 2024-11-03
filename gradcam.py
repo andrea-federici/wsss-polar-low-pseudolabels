@@ -2,22 +2,20 @@ import cv2
 
 import numpy as np
 import torch
-from torchvision.transforms import ToPILImage
 from captum.attr import LayerGradCam
-from PIL import Image
 
-from image_utility import normalize_image
+from image_utility import convert_to_np_array, normalize_image
 
 class GradCAM:
     
-    def __init__(self, model, device):
+    def __init__(self, model: torch.nn.Module, device):
         self.model = model
         self.device = device
     
-    # Generate the GradCAM heatmap for the input image
-    def generate_gradcam_heatmap(self, input_image, layer=None):
+
+    def generate_heatmap(self, input_image: torch.Tensor, layer: torch.nn.Module = None) -> np.ndarray:
         """
-        Generate a GradCAM heatmap for the given input image using the specified layer of the model.
+        Generates a GradCAM heatmap for the given input image using the specified layer of the model.
 
         This method computes the GradCAM attributions for the input image, visualizing the regions 
         that the model focuses on when making a prediction. If no layer is specified, the function 
@@ -26,7 +24,7 @@ class GradCAM:
         Parameters:
             input_image (torch.Tensor): The input image tensor for which the heatmap will be generated. 
                                         It should be preprocessed and shaped correctly for the model.
-            layer (str, optional): The name of the convolutional layer to use for GradCAM. 
+            layer (torch.nn.Module, optional): The convolutional layer to use for GradCAM. 
                                 If None, the last convolutional layer of the model will be used.
 
         Returns:
@@ -39,69 +37,112 @@ class GradCAM:
         if layer is None:
             layer = self.model.get_last_conv_layer()
 
-        gradcam = LayerGradCam(self.model, layer) # Initialize GradCAM method
+        # Initialize GradCAM with the model and the specified layer
+        gradcam = LayerGradCam(self.model, layer)
 
         self.model.eval()
 
-        input_image = input_image.to(self.device) # Move image to the same device as the model
+        # Move image to the same device as the model
+        input_image = input_image.to(self.device)
 
+        # Get the predicted class for the input image
         logits = self.model(input_image)
-        target_class = torch.argmax(logits, dim=1).item() # Get the predicted class
+        target_class = torch.argmax(logits, dim=1).item()
 
-        attr = gradcam.attribute(input_image, target_class) # Compute the GradCAM attributions
+        # Compute the GradCAM attributions for the input image
+        attr = gradcam.attribute(input_image, target_class)
 
         attr = attr.squeeze().detach().cpu().numpy() # Convert to NumPy format
         heatmap = np.maximum(attr, 0) # Remove negative values in the heatmap
-        norm_heatmap = heatmap / np.max(heatmap) if np.max(heatmap) != 0 else 1 # Normalize the heatmap
+        norm_heatmap = heatmap / np.max(heatmap) if np.max(heatmap) != 0 else 1 # Normalize the heatmap between 0 and 1
 
         return norm_heatmap
     
-    # Visualize the heatmap overlay on the original image
-    def overlay_heatmap(self, original_image, heatmap, alpha: float = 0.4, colormap: int = cv2.COLORMAP_JET):
-        if isinstance(original_image, torch.Tensor):
-            # Convert PyTorch tensor to NumPy array
-            if original_image.ndim == 4:
-                original_image = original_image.squeeze(0) # Remove batch dimension if present
-            original_image = original_image.permute(1, 2, 0).cpu().numpy() # Convert CHW tensor to HWC NumPy array
-            original_image = normalize_image(original_image, target_range=(0, 255))
-        elif isinstance(original_image, Image.Image):
-            # Convert PIL image to NumPy array. Remember that PIL contains images in RGB format (0-255).
-            original_image = np.array(original_image)
-        else:
-            raise ValueError("Input image must be a PyTorch tensor or PIL image.")
 
-        heatmap_resized = cv2.resize(heatmap, (original_image.shape[1], original_image.shape[0])) # Resize the heatmap to match the original image size
+    def overlay_heatmap(self, image, heatmap: np.ndarray, alpha: float = 0.5) -> np.ndarray:
+        """
+        Overlays a heatmap onto an image, blending them to create a smooth overlay effect.
+        
+        Parameters
+        ----------
+        image : PIL.Image, np.ndarray, or torch.Tensor
+            The input image onto which the heatmap will be overlayed. This can be a PIL Image, 
+            a NumPy array, or a PyTorch tensor. If a tensor, it should be in the format 
+            (C, H, W) or (B, C, H, W).
+        
+        heatmap : np.ndarray
+            A 2D array representing the heatmap to overlay. This should be a single-channel 
+            grayscale heatmap with values normalized between 0 and 1.
+            
+        alpha : float, optional, default=0.5
+            The blending factor for the heatmap overlay. A value of 1.0 will use the heatmap fully, 
+            while 0.0 will use only the original image.
+            
+        Returns
+        -------
+        np.ndarray
+            The resulting image with the heatmap overlay, as a NumPy array in RGB format.
+        """
+        # Convert image to NumPy array and normalize
+        img_np = normalize_image(convert_to_np_array(image), target_range=(0, 255))
 
-        heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_resized), colormap) # Apply color map to heatmap
+        # Resize the heatmap to match the image size
+        heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
+
+        # Convert heatmap from grayscale (1 channel) to RGB (3 channels)
+        heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET) # Apply color map to heatmap
         heatmap_colored = cv2.cvtColor(heatmap_colored, cv2.COLOR_BGR2RGB) # Convert color space from BGR (Blue, Green, Red) to RGB
 
-        image_with_heatmap = cv2.addWeighted(heatmap_colored, alpha, original_image, 1 - alpha, 0) # Overlay the heatmap on the original image
+        # Overlay the heatmap on the image
+        ov_img = cv2.addWeighted(heatmap_colored, alpha, img_np, 1 - alpha, 0)
 
-        return image_with_heatmap
+        # Smooth overlay using the heatmap values (Transparency)
+        heatmap_resized = np.repeat(heatmap_resized[:, :, np.newaxis], 3, axis=2) # Repeat the heatmap values across 3 channels
+        ov_smooth_img = (ov_img * heatmap_resized + img_np * (1 - heatmap_resized)).astype(np.uint8) # Smooth overlay
+
+        return ov_smooth_img
     
-    def generate_and_overlay_bounding_boxes(self, original_image, heatmap, alpha: float = 0.4, colormap: int = cv2.COLORMAP_JET, bb_threshold=0.5):
-        # Convert PyTorch tensor to NumPy array
-        if original_image.ndim == 4:
-            original_image = original_image.squeeze(0) # Remove batch dimension if present
-        original_image = original_image.permute(1, 2, 0).cpu().numpy() # Convert CHW tensor to HWC NumPy array
-        original_image = normalize_image(original_image, target_range=(0, 255))
-        
-        # Resize the heatmap to the original image size for overlay purposes
-        heatmap_resized = cv2.resize(heatmap, (original_image.shape[1], original_image.shape[0]))
-        
-        heatmap_resized = (heatmap_resized * 255).astype(np.uint8)
-        _, binary_mask = cv2.threshold(heatmap_resized, bb_threshold * 255, 255, cv2.THRESH_BINARY)
 
-        # Generate binary mask from heatmap
-        # _, binary_mask = cv2.threshold(heatmap_resized, bb_threshold, 1, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(binary_mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    def generate_and_overlay_bounding_boxes(self, image, heatmap: np.ndarray, heatmap_threshold: float = 0.5) -> np.ndarray:
+        """
+        Generates bounding boxes around regions in a heatmap that exceed a specified threshold 
+        and overlays these bounding boxes onto an image.
+
+        Parameters
+        ----------
+        image : PIL.Image, np.ndarray, or torch.Tensor
+            The input image on which to overlay bounding boxes. This can be a PIL Image,
+            a NumPy array, or a PyTorch tensor. If a tensor, it should be in the format
+            (C, H, W) or (B, C, H, W).
         
-        # Draw bounding boxes on the overlayed image
+        heatmap : np.ndarray
+            A 2D array representing the heatmap used to identify regions of interest.
+            The heatmap should have values normalized between 0 and 1.
+
+        heatmap_threshold : float, optional, default=0.5
+            A threshold value for the heatmap. Pixels in the heatmap above this value are 
+            considered part of a region of interest and are used to generate bounding boxes.
+            
+        Returns
+        -------
+        np.ndarray
+            The resulting image with bounding boxes overlayed, as a NumPy array in RGB format.
+        """
+        img_np = normalize_image(convert_to_np_array(image), target_range=(0, 255)).copy()
+        
+        # Resize the heatmap to match the image size
+        heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
+        
+        # Generate binary mask from heatmap
+        heatmap_resized = (heatmap_resized * 255).astype(np.uint8)
+        _, binary_mask = cv2.threshold(heatmap_resized, heatmap_threshold * 255, 255, cv2.THRESH_BINARY)
+
+        # Find contours in the binary mask
+        contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Draw bounding boxes on the image
         for contour in contours:
             x, y, w, h = cv2.boundingRect(contour)
-            cv2.rectangle(original_image.astype(np.uint8), (x, y), (x + w, y + h), (255, 0, 0), 2)  # Red bounding box
+            cv2.rectangle(img_np, (x, y), (x + w, y + h), (255, 0, 0), 2)  # Red bounding box
         
-        # Convert the image back to PIL format for consistency
-        final_image_with_boxes = ToPILImage()(original_image)
-        
-        return final_image_with_boxes
+        return img_np
