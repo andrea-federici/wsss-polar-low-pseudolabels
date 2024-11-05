@@ -13,26 +13,7 @@ class GradCAM:
         self.device = device
     
 
-    def generate_heatmap(self, input_image: torch.Tensor, layer: torch.nn.Module = None) -> np.ndarray:
-        """
-        Generates a GradCAM heatmap for the given input image using the specified layer of the model.
-
-        This method computes the GradCAM attributions for the input image, visualizing the regions 
-        that the model focuses on when making a prediction. If no layer is specified, the function 
-        defaults to using the last convolutional layer of the model's feature extractor.
-        
-        Parameters:
-            input_image (torch.Tensor): The input image tensor for which the heatmap will be generated. 
-                                        It should be preprocessed and shaped correctly for the model.
-            layer (torch.nn.Module, optional): The convolutional layer to use for GradCAM. 
-                                If None, the last convolutional layer of the model will be used.
-
-        Returns:
-            numpy.ndarray: A normalized heatmap array representing the areas of importance 
-                        in the input image. The values are scaled between 0 and 1, 
-                        where 1 indicates the highest importance.
-        """
-        
+    def generate_heatmap(self, input_image: torch.Tensor, target_class: int = None, layer: torch.nn.Module = None) -> np.ndarray:
         # If no layer is specified, use the last layer of the feature extractor
         if layer is None:
             layer = self.model.get_last_conv_layer()
@@ -45,9 +26,10 @@ class GradCAM:
         # Move image to the same device as the model
         input_image = input_image.to(self.device)
 
-        # Get the predicted class for the input image
-        logits = self.model(input_image)
-        target_class = torch.argmax(logits, dim=1).item()
+        if target_class is None:
+            # Get the predicted class for the input image
+            logits = self.model(input_image)
+            target_class = torch.argmax(logits, dim=1).item()
 
         # Compute the GradCAM attributions for the input image
         attr = gradcam.attribute(input_image, target_class)
@@ -60,29 +42,6 @@ class GradCAM:
     
 
     def overlay_heatmap(self, image, heatmap: np.ndarray, alpha: float = 0.5) -> np.ndarray:
-        """
-        Overlays a heatmap onto an image, blending them to create a smooth overlay effect.
-        
-        Parameters
-        ----------
-        image : PIL.Image, np.ndarray, or torch.Tensor
-            The input image onto which the heatmap will be overlayed. This can be a PIL Image, 
-            a NumPy array, or a PyTorch tensor. If a tensor, it should be in the format 
-            (C, H, W) or (B, C, H, W).
-        
-        heatmap : np.ndarray
-            A 2D array representing the heatmap to overlay. This should be a single-channel 
-            grayscale heatmap with values normalized between 0 and 1.
-            
-        alpha : float, optional, default=0.5
-            The blending factor for the heatmap overlay. A value of 1.0 will use the heatmap fully, 
-            while 0.0 will use only the original image.
-            
-        Returns
-        -------
-        np.ndarray
-            The resulting image with the heatmap overlay, as a NumPy array in RGB format.
-        """
         # Convert image to NumPy array and normalize
         img_np = normalize_image(convert_to_np_array(image), target_range=(0, 255))
 
@@ -104,30 +63,6 @@ class GradCAM:
     
 
     def generate_and_overlay_bounding_boxes(self, image, heatmap: np.ndarray, heatmap_threshold: float = 0.5) -> np.ndarray:
-        """
-        Generates bounding boxes around regions in a heatmap that exceed a specified threshold 
-        and overlays these bounding boxes onto an image.
-
-        Parameters
-        ----------
-        image : PIL.Image, np.ndarray, or torch.Tensor
-            The input image on which to overlay bounding boxes. This can be a PIL Image,
-            a NumPy array, or a PyTorch tensor. If a tensor, it should be in the format
-            (C, H, W) or (B, C, H, W).
-        
-        heatmap : np.ndarray
-            A 2D array representing the heatmap used to identify regions of interest.
-            The heatmap should have values normalized between 0 and 1.
-
-        heatmap_threshold : float, optional, default=0.5
-            A threshold value for the heatmap. Pixels in the heatmap above this value are 
-            considered part of a region of interest and are used to generate bounding boxes.
-            
-        Returns
-        -------
-        np.ndarray
-            The resulting image with bounding boxes overlayed, as a NumPy array in RGB format.
-        """
         img_np = normalize_image(convert_to_np_array(image), target_range=(0, 255)).copy()
         
         # Resize the heatmap to match the image size
