@@ -8,7 +8,7 @@ from image_utility import convert_to_np_array, normalize_image
 
 class GradCAM:
     
-    def __init__(self, model: torch.nn.Module, device):
+    def __init__(self, model: torch.nn.Module, device: str):
         self.model = model
         self.device = device
     

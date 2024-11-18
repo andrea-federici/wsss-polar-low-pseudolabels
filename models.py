@@ -1,10 +1,7 @@
 
-import torch
 import torch.nn as nn
 from torchinfo import summary
 import timm
-
-import config
 
 class XceptionModel(nn.Module):
     def __init__(self, num_classes=2):
@@ -105,3 +102,5 @@ class ConvModel(nn.Module):
 # model.to(config.device)
 # summary(model, input_size=(1, 3, 299, 299), depth=6) # Xception model
 
+# for layer_name in model.feature_extractor.named_modules():
+#     print(layer_name)

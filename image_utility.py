@@ -1,13 +1,14 @@
 
-from cv2 import normalize
-
 import numpy as np
 import torch
+import torchvision.transforms.functional as T
 from PIL import Image
+
+from train_config import device
 
 def normalize_image(image, target_range=(0, 1)):
     if not isinstance(image, np.ndarray):
-        raise ValueError("Input image should be a NumPy array.")
+        raise TypeError("Input image should be a NumPy array.")
 
     min_val = image.min()
     max_val = image.max()
@@ -36,4 +37,37 @@ def convert_to_np_array(image):
     elif isinstance(image, Image.Image):
         return np.array(image)
     else:
-        raise ValueError("Input image must be a PyTorch tensor or PIL image.")
+        raise TypeError("Input image must be a PyTorch tensor or PIL image.")
+
+
+def unnormalize_image_mean_std(image, mean, std):
+    """Unnormalize a tensor image using the provided mean and std."""
+    mean = torch.tensor(mean, device=device).view(-1, 1, 1)
+    std = torch.tensor(std, device=device).view(-1, 1, 1)
+    return image * std + mean
+
+
+def normalize_image_mean_std(image, mean, std):
+    """Normalize a tensor image using the provided mean and std."""
+    mean = torch.tensor(mean, device=device).view(-1, 1, 1)
+    std = torch.tensor(std, device=device).view(-1, 1, 1)
+    return (image - mean) / std
+
+
+def translate_image(image: torch.Tensor, translation_amount, mean, std):
+    unnormalized_image = unnormalize_image_mean_std(image, mean, std)
+
+    translated_image = T.affine(
+        unnormalized_image,
+        angle=0, # No rotation
+        translate=translation_amount, # Translation in pixels
+        scale=1.0, # No scaling
+        shear=[0.0, 0.0], # No shearing
+        fill=[0] # Fill new regions with black
+    )
+
+    normalized_image = normalize_image_mean_std(translated_image, mean, std)
+
+    return normalized_image
+
+

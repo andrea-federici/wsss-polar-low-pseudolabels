@@ -10,8 +10,9 @@ __pycache__/
 # Data files
 /data
 
-# Local test files
+# Test files
 /local_test_files
+/testing
 
 # Lightning files
 /lightning_logs
@@ -19,6 +20,3 @@ __pycache__/
 # Models
 /checkpoints
 /models
-
-# Notebooks for generating .py files
-/notebooks_for_py
