@@ -8,11 +8,11 @@ from torchvision import transforms
 # Data paths
 default_data_dir = 'data'
 
-def get_train_dir(data_dir: str):
-    return f'{data_dir if data_dir else default_data_dir}/train'
+def train_dir():
+    return f'{default_data_dir}/train'
 
-def get_test_dir(data_dir: str): 
-    return f'{data_dir if data_dir else default_data_dir}/test'
+def test_dir(): 
+    return f'{default_data_dir}/test'
 
 
 # General settings

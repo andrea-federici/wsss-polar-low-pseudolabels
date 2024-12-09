@@ -25,11 +25,11 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
-data_dir = args.data_dir
+tc.default_data_dir = args.data_dir
 
 # Create data loaders
-train_loader, val_loader, _ = create_data_loaders(tc.get_train_dir(data_dir),
-                                                  tc.get_test_dir(data_dir),
+train_loader, val_loader, _ = create_data_loaders(tc.train_dir(),
+                                                  tc.test_dir(),
                                                   tc.batch_size,
                                                   tc.num_workers,
                                                   tc.verbose)
