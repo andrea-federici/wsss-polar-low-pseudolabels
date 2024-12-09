@@ -1,3 +1,6 @@
+# .env file
+.env
+
 # Python files
 __pycache__/
 
@@ -20,3 +23,12 @@ __pycache__/
 # Models
 /checkpoints
 /models
+
+# Created by running the code
+/max_translations
+
+# Colab files
+colab_runner.ipynb
+
+# Karolina files
+train_job.slurm

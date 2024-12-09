@@ -1,6 +1,6 @@
-
 import numpy as np
 from sklearn.metrics import (
+    accuracy_score,
     precision_score,
     recall_score,
     f1_score
@@ -8,19 +8,19 @@ from sklearn.metrics import (
 import torch
 from torch import nn
 import torch.optim as optim
-import pytorch_lightning as pl
+from pytorch_lightning import LightningModule
 
+from optimizer_configs import reduce_lr_on_plateau
 
-class ModelContainer(pl.LightningModule):
+class ModelContainer(LightningModule):
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, optimizer: optim.Optimizer = None):
+    def __init__(self, model: nn.Module, criterion: nn.Module, optimizer: optim.Optimizer):
         super(ModelContainer, self).__init__()
         self.model = model
         self.criterion = criterion # Loss function
         self.optimizer = optimizer # Defaults to Adam if not given as input
-        self.train_losses = [] # Stores train losses for each epoch
+
         self.train_outputs = [] # Stores training outputs across steps
-        self.val_losses = [] # Stores validation losses for each epoch
         self.val_outputs = [] # Stores validation outputs across steps
 
 
@@ -42,6 +42,8 @@ class ModelContainer(pl.LightningModule):
             'loss': loss.item()
         })
 
+        self.log('train_loss', loss, prog_bar=True)
+
         return loss # Return the loss for optimization
 
 
@@ -57,11 +59,16 @@ class ModelContainer(pl.LightningModule):
             total_loss += output['loss']
 
         avg_loss = total_loss / len(self.train_outputs) # Average loss for the epoch
+        accuracy = accuracy_score(all_labels, all_preds)
         precision = precision_score(all_labels, all_preds, average='binary')
         recall = recall_score(all_labels, all_preds, average='binary')
         f1 = f1_score(all_labels, all_preds, average='binary')
 
-        self.train_losses.append(avg_loss) # Store the average loss for this epoch
+        self.log('train/epoch_loss', avg_loss)
+        self.log('train/epoch_accuracy', accuracy)
+        self.log('train/epoch_precision', precision)
+        self.log('train/epoch_recall', recall)
+        self.log('train/epoch_f1', f1)
 
         print(f'Epoch {self.current_epoch} - Training:')
         print(f'Loss: {avg_loss:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}')
@@ -100,11 +107,16 @@ class ModelContainer(pl.LightningModule):
             total_loss += output['loss']
 
         avg_loss = total_loss / len(self.val_outputs)
+        accuracy = accuracy_score(all_labels, all_preds)
         precision = precision_score(all_labels, all_preds, average='binary')
         recall = recall_score(all_labels, all_preds, average='binary')
         f1 = f1_score(all_labels, all_preds, average='binary')
 
-        self.val_losses.append(avg_loss) # Store average validation loss for the epoch
+        self.log('val/epoch_loss', avg_loss)
+        self.log('val/epoch_accuracy', accuracy)
+        self.log('val/epoch_precision', precision)
+        self.log('val/epoch_recall', recall)
+        self.log('val/epoch_f1', f1)
 
         print(f"Epoch {self.current_epoch} - Validation:")
         print(f"Loss: {avg_loss:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}")
@@ -113,10 +125,4 @@ class ModelContainer(pl.LightningModule):
 
 
     def configure_optimizers(self):
-        if self.optimizer is None:
-            # self.model.parameters() returns an iterator over all model parameters (weights and biases)
-            # Each parameter is a tensor, and each tensor has a 'requires_grad' attribute, which is True if the parameter should be updated during backpropagation, and False otherwise.
-            # filter() is a function that takes a function and an iterable as input. It applies the function to each element of the iterable and returns only the elements for which the function returns True.
-            # This line filters out the parameters that should not be updated during backpropagation (frozen layers)
-            self.optimizer = optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=0.001)
-        return self.optimizer
+        return reduce_lr_on_plateau(self.optimizer)

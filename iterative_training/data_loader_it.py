@@ -44,7 +44,8 @@ def create_data_loaders(train_dir, test_dir, batch_size, num_workers, max_transl
 
     def collate_fn(batch):
         images, labels, max_tr = zip(*batch)
-        return torch.stack(images).to(device), torch.tensor(labels).to(device), max_tr
+        return torch.stack(images), torch.tensor(labels), max_tr
+        # return torch.stack(images).to(device), torch.tensor(labels).to(device), max_tr
 
     # Create DataLoader for training data using the sampler
     train_loader = DataLoader(train_data, batch_size=batch_size, sampler=sampler, num_workers=num_workers, collate_fn=collate_fn)

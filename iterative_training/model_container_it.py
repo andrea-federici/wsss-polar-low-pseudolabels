@@ -11,6 +11,9 @@ import torch.optim as optim
 import pytorch_lightning as pl
 import torchvision.transforms.functional as F
 
+from image_utility import normalize_image_mean_std, unnormalize_image_mean_std
+from train_config import mean, std
+
 
 class ModelContainerIt(pl.LightningModule):
 
@@ -33,8 +36,11 @@ class ModelContainerIt(pl.LightningModule):
             y_tr = torch.randint(-max_translations['up'], max_translations['down']+1, size=(1,)).item()
         else:
             h, w = image.shape[1], image.shape[2]
-            x_tr = torch.randint(low=int(-0.35*w), high=int(0.35*w)+1, size=(1,)).item()
-            y_tr = torch.randint(low=int(-0.35*h), high=int(0.35*h)+1, size=(1,)).item()
+            fraction = 0.35
+            x_tr = torch.randint(low=int(-fraction*w), high=int(fraction*w)+1, size=(1,)).item()
+            y_tr = torch.randint(low=int(-fraction*h), high=int(fraction*h)+1, size=(1,)).item()
+
+        image = unnormalize_image_mean_std(image, mean, std)
 
         translated_image = F.affine(
             image,
@@ -61,6 +67,15 @@ class ModelContainerIt(pl.LightningModule):
 
         if torch.rand(1).item() < 0.5:
             rotated_image = F.vflip(rotated_image)
+
+        rotated_image = normalize_image_mean_std(rotated_image, mean, std)
+
+        # Save the image to disk
+        from PIL import Image
+        from image_utility import convert_to_np_array, normalize_image
+        image_to_save = normalize_image(convert_to_np_array(rotated_image), target_range=(0, 255))
+        pil_image = Image.fromarray(image_to_save.astype(np.uint8))
+        pil_image.save(f'transformed_image_{torch.randint(0, 100000, (1,)).item()}.png')
 
         return rotated_image
 

@@ -106,12 +106,20 @@ def batch_find_maximum_translations(model, batch_dir: str, data_transform: trans
 def bounding_box_from_max_translations(max_translations, image_size = None):
     if image_size is None:
         image_size = resized_image_res
+
     # Calculate bounding box coordinates based on max translations
     w, h = image_size
-    x_min = max(0, w - max_translations['left'])
-    y_min = max(0, h - max_translations['up'])
-    x_max = min(w, max_translations['right'])
-    y_max = min(h, max_translations['down'])
+    # x_min = max(0, w - max_translations['left'])
+    # y_min = max(0, h - max_translations['up'])
+    # x_max = min(w, max_translations['right'])
+    # y_max = min(h, max_translations['down'])
+    x_min = max(0, w - max_translations['right'])
+    y_min = max(0, h - max_translations['down'])
+    x_max = min(w, max_translations['left'])
+    y_max = min(h, max_translations['up'])
+
+    if x_max <= x_min or y_max <= y_min:
+        return 0, 0, 0, 0
   
     return x_min, y_min, x_max, y_max
 
@@ -143,7 +151,7 @@ def average_bounding_box_area(max_translations_dict, image_size=None):
 
 
 def plot_bounding_box(image: torch.Tensor, bounding_box):
-    image_np = normalize_image(image.squeeze(0).permute(1, 2, 0).numpy())
+    image_np = normalize_image(image.squeeze(0).permute(1, 2, 0).cpu().numpy())
     x_min, y_min, x_max, y_max = bounding_box
     plt.imshow(image_np)
     plt.gca().add_patch(Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, fill=False, edgecolor='red', linewidth=2))
@@ -199,29 +207,31 @@ def plot_non_discriminative_regions(image: torch.Tensor, max_translations):
 
 # ------------------------------ TESTING ------------------------------
 
-import torch.nn as nn
-import torch.optim as optim
+# import torch.nn as nn
+# import torch.optim as optim
 
-from models import XceptionModel
-from model_container import ModelContainer
-from data_utils import load_and_transform_image, pick_random_image
-from image_utility import translate_image
-from iterative_training.json_utils import load_max_translations
+# from models import XceptionModel
+# from model_container import ModelContainer
+# from data_utils import load_and_transform_image, pick_random_image
+# from image_utility import translate_image
 
 
-torch_model = XceptionModel(num_classes=2)
+# torch_model = XceptionModel(num_classes=2)
 
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(filter(lambda p: p.requires_grad, torch_model.parameters()), lr=0.001)
+# criterion = nn.CrossEntropyLoss()
+# optimizer = optim.Adam(filter(lambda p: p.requires_grad, torch_model.parameters()), lr=0.001)
 
-model = ModelContainer.load_from_checkpoint('checkpoints/xception-xaug.ckpt', model=torch_model, criterion=criterion, optimizer=optimizer)
+# model = ModelContainer.load_from_checkpoint('checkpoints/xception-xaug.ckpt', model=torch_model, criterion=criterion, optimizer=optimizer)
 
-image = load_and_transform_image(pick_random_image('data/train', 'pos'), transform_prep)
-image = translate_image(image, (100, 0), mean, std)
-max_translations = find_maximum_translations(model, image)
-print(max_translations)
-bb = bounding_box_from_max_translations(max_translations)
-print(bb)
-print(area_from_max_translations(max_translations))
+# # image_path = pick_random_image('data/train', 'pos')
+# image_path = 'data/train/pos/5d6964_20160902T082858_20160902T083102_mos_rgb.png'
+# print(image_path)
+# image = load_and_transform_image(image_path, transform_prep)
+# image = translate_image(image, (100, 150), mean, std)
+# max_translations = find_maximum_translations(model, image)
+# print(max_translations)
+# bb = bounding_box_from_max_translations(max_translations)
+# print(bb)
+# print(area_from_max_translations(max_translations))
 
-plot_non_discriminative_regions(image, max_translations)
+# plot_non_discriminative_regions(image, max_translations)

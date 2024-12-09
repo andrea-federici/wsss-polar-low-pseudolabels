@@ -94,9 +94,9 @@ def pick_random_image(train_dir: str, class_name: str = ""):
     return os.path.join(class_dir, np.random.choice(os.listdir(class_dir)))
 
 
-def load_and_transform_image(image_path: str, data_transform: transforms.Compose) -> torch.Tensor:
+def load_and_transform_image(image_path: str, data_transform: transforms.Compose, device='cpu') -> torch.Tensor:
     image = Image.open(image_path).convert('RGB')
     transformed_image = data_transform(image)
     assert isinstance(transformed_image, torch.Tensor), 'Data preparation should return a torch Tensor.'
-    return transformed_image.unsqueeze(0)
+    return transformed_image.unsqueeze(0).to(device)
 
