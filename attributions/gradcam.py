@@ -4,13 +4,15 @@ import numpy as np
 import torch
 from captum.attr import LayerGradCam
 
-from image_utility import convert_to_np_array, normalize_image
+from image_processing import convert_to_np_array, normalize_image_to_range
 
 class GradCAM:
     
     def __init__(self, model: torch.nn.Module, device: str):
         self.model = model
         self.device = device
+
+        self.model.eval()
     
 
     def generate_heatmap(self, input_image: torch.Tensor, target_class: int = None, layer: torch.nn.Module = None) -> np.ndarray:
@@ -20,8 +22,6 @@ class GradCAM:
 
         # Initialize GradCAM with the model and the specified layer
         gradcam = LayerGradCam(self.model, layer)
-
-        self.model.eval()
 
         # Move image to the same device as the model
         input_image = input_image.to(self.device)
@@ -43,7 +43,7 @@ class GradCAM:
 
     def overlay_heatmap(self, image, heatmap: np.ndarray, alpha: float = 0.5) -> np.ndarray:
         # Convert image to NumPy array and normalize
-        img_np = normalize_image(convert_to_np_array(image), target_range=(0, 255))
+        img_np = normalize_image_to_range(convert_to_np_array(image), target_range=(0, 255))
 
         # Resize the heatmap to match the image size
         heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
@@ -59,11 +59,23 @@ class GradCAM:
         heatmap_resized = np.repeat(heatmap_resized[:, :, np.newaxis], 3, axis=2) # Repeat the heatmap values across 3 channels
         ov_smooth_img = (ov_img * heatmap_resized + img_np * (1 - heatmap_resized)).astype(np.uint8) # Smooth overlay
 
-        return ov_smooth_img
+        return normalize_image_to_range(ov_smooth_img, target_range=(0, 1))
+    
+
+    def generate_gradcam_overlay(
+            self,
+            input_image: torch.Tensor,
+            target_class: int = None,
+            layer: torch.nn.Module = None,
+            alpha: float = 0.5
+            ) -> np.ndarray:
+        heatmap = self.generate_heatmap(input_image, target_class=target_class, layer=layer)
+        gradcam_overlay = self.overlay_heatmap(input_image, heatmap, alpha)
+        return gradcam_overlay
     
 
     def generate_and_overlay_bounding_boxes(self, image, heatmap: np.ndarray, heatmap_threshold: float = 0.5) -> np.ndarray:
-        img_np = normalize_image(convert_to_np_array(image), target_range=(0, 255)).copy()
+        img_np = normalize_image_to_range(convert_to_np_array(image), target_range=(0, 255)).copy()
         
         # Resize the heatmap to match the image size
         heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))

@@ -69,9 +69,9 @@ import torch.nn as nn
 import torch.optim as optim
 
 from models import XceptionModel
-from model_container import ModelContainer
-from data_utils import load_and_transform_image, pick_random_image
-from image_utility import translate_image, normalize_image, convert_to_np_array
+from lit_model import LitModel
+from data_utils import load_and_transform_image, pick_random_image_path
+from image_processing import translate_image, normalize_image_to_range, convert_to_np_array
 from train_config import transform_prep
 
 
@@ -80,9 +80,9 @@ torch_model = XceptionModel(num_classes=2)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(filter(lambda p: p.requires_grad, torch_model.parameters()), lr=0.001)
 
-model = ModelContainer.load_from_checkpoint('checkpoints/xception-xaug.ckpt', model=torch_model, criterion=criterion, optimizer=optimizer)
+model = LitModel.load_from_checkpoint('checkpoints/xception-xaug.ckpt', model=torch_model, criterion=criterion, optimizer=optimizer)
 
-image_path = pick_random_image('data/train', 'pos')
+image_path = pick_random_image_path('data/train', 'pos')
 # image_path = 'data/train/pos/5d6964_20160902T082858_20160902T083102_mos_rgb.png'
 print(image_path)
 image = load_and_transform_image(image_path, transform_prep)

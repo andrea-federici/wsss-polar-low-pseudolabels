@@ -5,7 +5,7 @@ import torch
 from captum.attr import IntegratedGradients
 
 from train_config import device
-from image_processing import normalize_image_to_range
+from image_utility import normalize_image
 
 
 def generate_heatmap(model: torch.nn.Module, input_image: torch.Tensor, target_class: int = -1, n_steps: int = 50, baseline = None):
@@ -86,7 +86,7 @@ def generate_mask_from_heatmap(input_image: torch.Tensor, heatmap, percentile=98
 def overlay_mask(input_image: torch.Tensor, mask: np.ndarray, alpha: float = 0.5):
     # Convert the input image to a NumPy array and normalize it
     img_np = input_image.squeeze(0).permute(1, 2, 0).numpy()
-    img_np = normalize_image_to_range(img_np, target_range=(0, 1))
+    img_np = normalize_image(img_np, target_range=(0, 1))
 
     # Create a color overlay from the binary mask
     color_overlay = np.zeros_like(img_np)

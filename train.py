@@ -1,66 +1,42 @@
 import argparse
 
-import torch.nn as nn
-from pytorch_lightning import Trainer
-from pytorch_lightning.loggers import NeptuneLogger
-
 import train_config as tc
-from data_loader import create_data_loaders
-from models import XceptionModel
-from model_container import ModelContainer
-import callbacks as cb
-from optimizers import adam
+import train_single
+import train_optuna
+import finetune_iterative
 
 # Suppress the warning related to the creation of DataLoader using a high 
 # number of num_workers
 import warnings
 warnings.filterwarnings('ignore', message='.*DataLoader will create.*')
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    '--data-dir',
-    type=str,
-    default=tc.default_data_dir,
-    help=f'Path to the data directory (default: {tc.default_data_dir})',
-)
 
-args = parser.parse_args()
-tc.default_data_dir = args.data_dir
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser() # TODO: change _ to - for all arguments and their options
+    parser.add_argument(
+        '--data-dir',
+        type=str,
+        default=tc.default_data_dir,
+        help=f'Path to the data directory (default: {tc.default_data_dir})',
+    )
+    parser.add_argument(
+        '--train_mode', # TODO: change to train-mode
+        type=str,
+        choices=tc.possible_train_modes,
+        default=tc.default_train_mode,
+        help=f'Training mode (Possible options: {tc.possible_train_modes}. \
+            Default: {tc.default_train_mode})',
+    )
 
-# Create data loaders
-train_loader, val_loader, _ = create_data_loaders(tc.train_dir(),
-                                                  tc.test_dir(),
-                                                  tc.batch_size,
-                                                  tc.num_workers,
-                                                  tc.verbose)
+    args = parser.parse_args()
+    tc.default_data_dir = args.data_dir
+    train_mode = args.train_mode
 
-torch_model = XceptionModel(num_classes=2)
-
-criterion = nn.CrossEntropyLoss()
-optimizer = adam(torch_model)
-
-lit_model = ModelContainer(torch_model, criterion, optimizer).to(tc.device)
-
-neptune_logger = NeptuneLogger(
-    project="andreaf/polarlows",
-    api_key=tc.neptune_api_key,
-    log_model_checkpoints=True
-)
-
-neptune_logger.experiment["source_files/train_config"].upload("train_config.py")
-
-# Train model
-trainer = Trainer(
-    logger = neptune_logger,
-    max_epochs = tc.max_epochs,
-    callbacks=[cb.early_stopping, cb.lr_monitor, cb.model_checkpoint],
-    accelerator=tc.accelerator,
-    devices=1,
-    check_val_every_n_epoch=1,
-    enable_progress_bar=True,
-    log_every_n_steps=1 # TODO: progress bars still update every 20 epochs
-    #                       for some reason.
-)
-
-trainer.fit(lit_model, train_loader, val_loader)
-
+    if train_mode == 'single':
+        train_single.run()
+    elif train_mode == 'single_optuna': 
+        train_optuna.run()
+    elif train_mode == 'ft_iterative':
+        finetune_iterative.run('checkpoints/base_model.ckpt') # TODO: remove hard-coding -> use options
+    else:
+        raise ValueError(f'Invalid training mode: {train_mode}')

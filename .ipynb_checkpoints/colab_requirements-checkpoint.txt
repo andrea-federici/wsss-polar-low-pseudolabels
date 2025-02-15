@@ -1,0 +1,6 @@
+python-dotenv
+timm
+torchinfo
+lightning
+captum
+neptune

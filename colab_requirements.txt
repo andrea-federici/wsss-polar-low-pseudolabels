@@ -1,0 +1,8 @@
+captum
+lightning
+neptune
+optuna
+optuna-integration[pytorch_lightning]
+python-dotenv
+timm
+torchinfo

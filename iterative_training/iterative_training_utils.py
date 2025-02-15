@@ -2,6 +2,7 @@
 import os
 
 from matplotlib import pyplot as plt
+from matplotlib.figure import Figure
 from matplotlib.patches import Rectangle
 import torch
 from torchvision import transforms
@@ -15,7 +16,7 @@ from train_config import (
     std,
     transform_prep,
 )
-from image_utility import translate_image, normalize_image
+from image_processing import translate_image, normalize_image_to_range, plot_to_pil_image
 
 
 def find_maximum_translations(model, image, resolution = -1, initial_step_size=-1, threshold=0.5):
@@ -87,6 +88,8 @@ def find_maximum_translations(model, image, resolution = -1, initial_step_size=-
 def batch_find_maximum_translations(model, batch_dir: str, data_transform: transforms.Compose, resolution: int = -1, initial_step_size: int = -1, threshold: float = 0.5):
     batch_max_translations = {}
 
+    model = model.to(device) # TODO: added this as quick fix, but there should be a better way to handle this (move movel to correct device before this function call) This was needed because the model was not on the correct device when this function was called in the ft_iterative run
+
     image_paths = [os.path.join(batch_dir, fname) for fname in os.listdir(batch_dir)]
 
     for image_path in tqdm(image_paths, desc='Calculating maximum translation values for images in the batch directory'):
@@ -109,10 +112,6 @@ def bounding_box_from_max_translations(max_translations, image_size = None):
 
     # Calculate bounding box coordinates based on max translations
     w, h = image_size
-    # x_min = max(0, w - max_translations['left'])
-    # y_min = max(0, h - max_translations['up'])
-    # x_max = min(w, max_translations['right'])
-    # y_max = min(h, max_translations['down'])
     x_min = max(0, w - max_translations['right'])
     y_min = max(0, h - max_translations['down'])
     x_max = min(w, max_translations['left'])
@@ -124,6 +123,7 @@ def bounding_box_from_max_translations(max_translations, image_size = None):
     return x_min, y_min, x_max, y_max
 
 
+# TODO: rename this for more clarity
 def area_from_max_translations(max_translations, image_size = None):
     if image_size is None:
         image_size = resized_image_res
@@ -150,12 +150,45 @@ def average_bounding_box_area(max_translations_dict, image_size=None):
     return total_area / num_entries
 
 
-def plot_bounding_box(image: torch.Tensor, bounding_box):
-    image_np = normalize_image(image.squeeze(0).permute(1, 2, 0).cpu().numpy())
+def calculate_max_transl_fractions(max_translations_dict, image_size):
+    if not max_translations_dict:
+        raise ValueError('Dictionary containing maximum translations is empty.')
+    
+    if not image_size or len(image_size) != 2:
+        raise ValueError('Image size should be a tuple of two integers (width, height).')
+    
+    sums = {'up': 0, 'down': 0, 'left': 0, 'right': 0}
+
+    for image_transl in max_translations_dict.values():
+        for direction, value in image_transl.items():
+            sums[direction] += value
+    
+    num_images = len(max_translations_dict)
+    averages = {direction: total / num_images for direction, total in sums.items()}
+
+    fractions = {}
+
+    width, height = image_size
+    fractions['up'] = averages['up'] / height
+    fractions['down'] = averages['down'] / height
+    fractions['left'] = averages['left'] / width
+    fractions['right'] = averages['right'] / width
+
+    return fractions
+
+
+def overlay_bounding_box(image: torch.Tensor, bounding_box):
+    image_np = normalize_image_to_range(image.squeeze(0).permute(1, 2, 0).cpu().numpy())
     x_min, y_min, x_max, y_max = bounding_box
-    plt.imshow(image_np)
-    plt.gca().add_patch(Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, fill=False, edgecolor='red', linewidth=2))
-    plt.show()
+
+    fig = Figure(figsize=(12, 12), dpi=100)
+    ax = fig.add_subplot(1, 1, 1)
+
+    ax.imshow(image_np)
+    ax.add_patch(Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, fill=False, edgecolor='red', linewidth=2))
+    ax.axis('off')
+
+    return plot_to_pil_image(fig)
 
 
 def plot_non_discriminative_regions(image: torch.Tensor, max_translations):
@@ -168,7 +201,7 @@ def plot_non_discriminative_regions(image: torch.Tensor, max_translations):
     h, w, _ = image_np.shape
 
     _, ax = plt.subplots(1)
-    ax.imshow(normalize_image(image_np))
+    ax.imshow(normalize_image_to_range(image_np))
 
     # Define colors for each region
     colors = {
