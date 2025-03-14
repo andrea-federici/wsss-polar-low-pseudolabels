@@ -13,22 +13,11 @@ __pycache__/
 # Data files
 /data
 
-# Test files
-/local_test_files
-/testing
-
 # Lightning files
 /lightning_logs
-
-# Models
-/checkpoints
-/models
-
-# Created by running the code
-/max_translations
 
 # Colab files
 colab_runner.ipynb
 
-# Karolina files
-train_job.slurm
+# Outputs directory
+/out
