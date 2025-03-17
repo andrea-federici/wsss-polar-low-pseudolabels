@@ -1,2 +1,3 @@
 name: adversarial_erasing
 dataset_type: adversarial_erasing
+train_data_transform: val

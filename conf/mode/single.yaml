@@ -1,3 +1,4 @@
 name: single
 dataset_type: standard
+train_data_transform: train
 lightning_model: base

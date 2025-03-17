@@ -7,11 +7,12 @@ from lightning.pytorch.loggers import NeptuneLogger
 from omegaconf import DictConfig
 
 from src.data.data_loading import create_data_loaders
-from src.utils.model_utils import (
+from src.utils.getters import (
     torch_model_getter,
     lightning_model_getter,
     criterion_getter, 
-    optimizer_getter
+    optimizer_getter,
+    lr_scheduler_getter
 )
 from src.train.loggers import create_neptune_logger
 from src.data.transforms import get_transform
@@ -31,39 +32,51 @@ class TrainSetup:
 def get_train_setup(cfg: DictConfig) -> TrainSetup:
     
     ## LOGGER ##
-
     neptune_logger = create_neptune_logger(
         cfg.neptune.project,
         cfg.neptune.api_kei
     )
 
     ## TORCH MODEL ##
-
     torch_model = torch_model_getter(cfg.torch_model, cfg.num_classes)
 
     ## DATA LOADERS ##
-
     train_loader, val_loader, _ = create_data_loaders(
         cfg.data_dir,
         cfg.batch_size,
         cfg.num_workers,
-        get_transform(cfg, 'train'),
+        get_transform(cfg, cfg.mode.train_data_transform),
         get_transform(cfg, 'val'),
         dataset_type=cfg.mode.dataset_type,
     )
 
     ## LOSS AND OPTIMIZER ##
-
     criterion = criterion_getter(cfg.criterion)
     optimizer = optimizer_getter(cfg.optimizer, torch_model, cfg.learning_rate)
 
-    ## LIGHTNING MODEL ##
+    ## OPTIMIZER CONFIGURATION ##
+    lr_scheduler = lr_scheduler_getter(
+        cfg.lr_scheduler.name,
+        optimizer,
+        cfg.lr_scheduler.mode,
+        cfg.lr_scheduler.patience,
+        cfg.lr_scheduler.factor,
+    )
+    optimizer_config = {
+        'optimizer': optimizer,
+        'lr_scheduler': {
+            'scheduler': lr_scheduler,
+            'monitor': cfg.lr_scheduler.monitor,
+            'interval': 'epoch'
+        }
+    }
 
+    ## LIGHTNING MODEL ##
     lightning_model = lightning_model_getter(
         cfg.lightning_model,
         torch_model,
         criterion,
-        optimizer
+        optimizer_config
     )
 
     ## CALLBACKS ##
@@ -87,6 +100,8 @@ def get_train_setup(cfg: DictConfig) -> TrainSetup:
     ))
 
     # Learning Rate Monitor
+    # This is not required by the learning rate scheduler, but it is useful 
+    # for logging the learning rate values at each step/epoch.
     callbacks.append(cb.LearningRateMonitor(logging_interval='epoch'))
 
     ## TRAINER ##

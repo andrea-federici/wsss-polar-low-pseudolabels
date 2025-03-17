@@ -47,5 +47,8 @@ checkpoint:
 
 # Learning rate scheduler
 lr_scheduler:
+  name: reduce_lr_on_plateau
+  monitor: val_loss
+  mode: min
   patience: 5
   factor: 0.5

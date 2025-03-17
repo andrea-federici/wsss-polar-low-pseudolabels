@@ -1,4 +1,5 @@
 import torch.optim as optim
+from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 import torch.nn as nn
 from lightning.pytorch import LightningModule
 
@@ -71,3 +72,17 @@ def optimizer_getter(
     else:
         raise ValueError(f"Invalid optimizer name: {optimizer_name}. "
             f"Available options: ['adam']")
+    
+
+def lr_scheduler_getter(
+    lr_scheduler_name: str,
+    optimizer: optim.Optimizer,
+    mode: str,
+    patience: int,
+    factor: float
+) -> LRScheduler:
+    if lr_scheduler_name == 'reduce_lr_on_plateau':
+        return ReduceLROnPlateau(optimizer, mode=mode, patience=patience, factor=factor)
+    else:
+        raise ValueError(f"Invalid lr_scheduler name: {lr_scheduler_name}. "
+            f"Available options: ['reduce_lr_on_plateu']")

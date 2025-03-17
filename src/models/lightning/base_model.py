@@ -9,16 +9,14 @@ from torch import nn
 import torch.optim as optim
 from lightning.pytorch import LightningModule
 
-from src.train.components.optimizer_configs import reduce_lr_on_plateau
-
 
 class BaseModel(LightningModule):
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, optimizer: optim.Optimizer):
+    def __init__(self, model: nn.Module, criterion: nn.Module, optimizer_config: dict):
         super().__init__()
         self.model = model
         self.criterion = criterion # Loss function
-        self.optimizer = optimizer
+        self.optimizer_config = optimizer_config # Optimizer configuration
 
         self.train_outputs = [] # Stores training outputs across steps
         self.val_outputs = [] # Stores validation outputs across steps
@@ -119,4 +117,4 @@ class BaseModel(LightningModule):
 
 
     def configure_optimizers(self):
-        return reduce_lr_on_plateau(self.optimizer)
+        return self.optimizer_config

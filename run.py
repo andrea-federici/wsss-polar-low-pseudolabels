@@ -1,4 +1,3 @@
-import os
 import sys
 
 from dotenv import load_dotenv
@@ -8,7 +7,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from src.train.modes import (
     train_single,
-    train_optuna,
+    # train_optuna,
     train_adv_er,
     finetune_max_tr
 )
@@ -21,18 +20,13 @@ def run(cfg: DictConfig) -> None:
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
 
-    cuda_available = torch.cuda.is_available()
-    accelerator = 'gpu' if cuda_available else 'cpu'
-    device = torch.device("cuda" if cuda_available else "cpu")
-    print(f"Device: {device}. Accelerator: {accelerator}")
-
     torch.set_float32_matmul_precision(cfg.matmul_precision)
 
     mode = cfg.mode
     if mode == 'single':
         train_single.run(cfg)
-    elif mode == 'optuna':
-        train_optuna.run(cfg)
+    # elif mode == 'optuna':
+    #     train_optuna.run(cfg)
     elif mode == 'adversarial_erasing':
         train_adv_er.run(cfg)
     elif mode == 'max_translations':
@@ -40,7 +34,7 @@ def run(cfg: DictConfig) -> None:
 
 
 def validate_hardware_config(cfg):
-    if cfg.hardware.accelerator = 'gpu' or cfg.hardware.accelerator = 'cuda':
+    if cfg.hardware.accelerator == 'gpu' or cfg.hardware.accelerator == 'cuda':
         if not torch.cuda.is_available():
             print('Error: GPU was requested but is not available on this '
                 'machine.')
