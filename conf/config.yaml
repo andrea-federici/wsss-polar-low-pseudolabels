@@ -1,5 +1,3 @@
 defaults:
   - defaults
   - mode: single
-  - criterion: cross_entropy
-  - optimizer: adam

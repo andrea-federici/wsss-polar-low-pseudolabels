@@ -1,2 +1,3 @@
 name: single
 dataset_type: standard
+lightning_model: base

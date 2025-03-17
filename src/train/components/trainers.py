@@ -29,5 +29,5 @@ def create_trainer(
         check_val_every_n_epoch=1,
         enable_progress_bar=True,
         log_every_n_steps=1 # TODO: progress bars still update every 20 epochs
-        #                       for some reason.
+        # for some reason.
     )

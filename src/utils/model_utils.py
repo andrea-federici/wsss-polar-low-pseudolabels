@@ -1,5 +1,38 @@
 import torch.optim as optim
 import torch.nn as nn
+from lightning.pytorch import LightningModule
+
+from src.models.torch import Xception
+from src.models.lightning import (
+    BaseModel,
+    MaxTranslationsModel,
+    AdversarialErasingModel
+)
+
+
+def torch_model_getter(
+    model_name: str, 
+    num_classes: int = 2
+) -> nn.Module:
+    if model_name == 'xception':
+        return Xception(num_classes=num_classes)
+    else:
+        raise ValueError(f"Invalid model name: {model_name}. "
+            f"Available options: ['xception']")
+
+
+# TODO: add support for max_translations
+def lightning_model_getter(
+    lightning_model_name: str,
+    torch_model: nn.Module,
+    criterion: nn.Module,
+    optimizer: optim.Optimizer,
+) -> LightningModule:
+    if lightning_model_name == 'base':
+        return BaseModel(torch_model, criterion, optimizer)
+    else:
+        raise ValueError(f"Invalid lightning model name: {lightning_model_name}. "
+            f"Available options: ['base']")
 
 
 def criterion_getter(criterion_name: str):
@@ -9,15 +42,16 @@ def criterion_getter(criterion_name: str):
 
     if criterion_name not in criterions:
         raise ValueError(f"Invalid criterion name: {criterion_name}. "
-                         f"Available options: {list(criterions.keys())}")
+            f"Available options: {list(criterions.keys())}")
 
     return criterions[criterion_name]
 
 
 def optimizer_getter(
-        optimizer_name: str, 
-        torch_model: nn.Module, 
-        learning_rate: float) -> optim.Optimizer:
+    optimizer_name: str, 
+    torch_model: nn.Module, 
+    learning_rate: float
+) -> optim.Optimizer:
     
     if optimizer_name == 'adam':
         # model.parameters() returns an iterator over all model 
@@ -36,4 +70,4 @@ def optimizer_getter(
         )
     else:
         raise ValueError(f"Invalid optimizer name: {optimizer_name}. "
-                         f"Available options: ['adam']")
+            f"Available options: ['adam']")

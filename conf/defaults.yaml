@@ -1,31 +1,51 @@
-data_dir: data/
+## HARDWARE ##
+hardware:
+  device: cuda
+  accelerator: gpu
+  devices: 1
 
+## LOGGER ##
+neptune:
+  project: 'andreaf/polarlows'
+  api_key: ${oc.env:NEPTUNE_API_TOKEN}
+
+## DATA ##
+data_dir: data
+
+## MISC ##
 # Enable Tensor Cores for faster matrix multiplications, trading some 
 # precision for performance.
 # - 'high' gives the best speed-up but with reduced precision.
 # - 'medium' balances precision and performance.
 # - 'highest' (default) maintains full precision but may be slower.
 matmul_precision: medium
-
-neptune:
-  project: 'andreaf/polarlows'
-  api_key: ${oc.env:NEPTUNE_API_TOKEN}
-
-# Experiment params
 num_workers: 16
 
-# Loss and optimizer
+## MODEL ##
+torch_model: xception
+num_classes: 2
+
+## LOSS AND OPTIMIZER ##
 criterion: cross_entropy
 optimizer: adam
 
-# Training params
+## TRAINING ##
 batch_size: 16
-num_epochs: 100
+max_epochs: 100
 learning_rate: 5e-4
 
+## CALLBACKS ##
+
 # Early stopping
-es_patience: 10
+early_stopping:
+  patience: 10
+
+# Checkpoint
+checkpoint:
+  directory: checkpoints
+  filename: best-checkpoint
 
 # Learning rate scheduler
-lr_patience: 5
-lr_factor: 0.5
+lr_scheduler:
+  patience: 5
+  factor: 0.5
