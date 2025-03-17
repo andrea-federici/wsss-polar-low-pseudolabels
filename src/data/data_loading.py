@@ -1,37 +1,42 @@
+import os
+
 import torch
-from torchvision import datasets
+from torchvision import datasets, transforms
 from torch.utils.data import (
     DataLoader, Subset, WeightedRandomSampler
 )
 
-from data.data_utils import (
+from src.data.data_utils import (
     dataset_calculate_class_weights,
     dataset_stratified_shuffle_split,
 )
-from train_config import transform_prep
-from custom_datasets import MaxTranslationsDataset, ImageFilenameDataset
-
-import warnings
+from src.data.custom_datasets import MaxTranslationsDataset, ImageFilenameDataset
 
 
 def create_data_loaders(
-    train_dir,
-    test_dir,
-    batch_size,
-    num_workers,
-    transform_train,
-    transform_val = transform_prep,
-    dataset_type: str = 'default',
+    data_dir: str,
+    batch_size: int,
+    num_workers: int,
+    transform_train: transforms.Compose,
+    transform_val: transforms.Compose,
+    transform_test: transforms.Compose = None,
+    dataset_type: str = 'standard',
     **kwargs
 ):
     assert dataset_type in (
-        'default', 'max_translations', 'adversarial_erase'
+        'standard', 'max_translations', 'adversarial_erasing'
     ), (
-        f"Invalid dataset type: {dataset_type}. Expected one of 'default', "
-        "'max_translations', 'adversarial_erase'."
+        f"Invalid dataset type: {dataset_type}. Expected one of 'standard', "
+        "'max_translations', 'adversarial_erasing'."
     )
 
-    if dataset_type == 'default':
+    train_dir = os.path.join(data_dir, 'train')
+    test_dir = os.path.join(data_dir, 'test')
+
+    if transform_test is None:
+        transform_test = transform_val
+
+    if dataset_type == 'standard':
         train_val_data = datasets.ImageFolder(
             train_dir, transform=transform_train
         )
@@ -43,38 +48,18 @@ def create_data_loaders(
                 "max_translations must be provided when dataset_type is "
                 "'max_translations'."
             )
-        
-        if transform_train != transform_prep:
-            warnings.warn(
-                (
-                    "For the 'max_translations' dataset, 'transform_train' "
-                    "should be set to 'transform_prep', since the "
-                    "transformations are applied in the training loop."
-                ),
-                UserWarning
-            )
 
         train_val_data = MaxTranslationsDataset(
             train_dir, 
             max_translations=max_translations, 
             transform=transform_train
         )
-    elif dataset_type == 'adversarial_erase':
-        if transform_train != transform_prep:
-            warnings.warn(
-                (
-                    "For the 'adversarial_erase' dataset, 'transform_train' "
-                    "should be set to 'transform_prep', since the "
-                    "transformations are applied in the training loop."
-                ),
-                UserWarning
-            )
-
+    elif dataset_type == 'adversarial_erasing':
         train_val_data = ImageFilenameDataset(
             train_dir, transform=transform_train
         )
     
-    test_data = datasets.ImageFolder(test_dir, transform=transform_prep)
+    test_data = datasets.ImageFolder(test_dir, transform=transform_test)
 
     # Split training data while preserving class proportions
     train_data, train_indices, val_indices = dataset_stratified_shuffle_split(
@@ -82,7 +67,7 @@ def create_data_loaders(
     )
 
     # Validation data uses a different transform
-    if dataset_type == 'default':
+    if dataset_type == 'standard':
         val_data = Subset(
             datasets.ImageFolder(
                 train_dir, transform=transform_val
@@ -98,7 +83,7 @@ def create_data_loaders(
             ), 
             val_indices
         )
-    elif dataset_type == 'adversarial_erase':
+    elif dataset_type == 'adversarial_erasing':
         val_data = Subset(
             ImageFilenameDataset(
                 train_dir, 
@@ -124,13 +109,13 @@ def create_data_loaders(
     )
 
     def collate_fn(batch):
-        if dataset_type == 'default':
+        if dataset_type == 'standard':
             images, labels = zip(*batch)
             return torch.stack(images), torch.tensor(labels)
         elif dataset_type == "max_translations":
             images, labels, max_translations = zip(*batch)
             return torch.stack(images), torch.tensor(labels), max_translations
-        elif dataset_type == "adversarial_erase":
+        elif dataset_type == "adversarial_erasing":
             images, labels, filenames = zip(*batch)
             return torch.stack(images), torch.tensor(labels), filenames
 

@@ -9,14 +9,7 @@ from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
 
-from train_config import (
-    device,
-    resized_image_res,
-    mean,
-    std,
-    transform_prep,
-)
-from data.image_processing import translate_image, normalize_image_to_range, plot_to_pil_image
+from src.data.image_processing import translate_image, normalize_image_to_range, plot_to_pil_image
 
 
 def find_maximum_translations(model, image, resolution = -1, initial_step_size=-1, threshold=0.5):

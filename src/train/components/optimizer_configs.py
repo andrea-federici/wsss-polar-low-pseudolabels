@@ -1,8 +1,7 @@
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 
-from train_config import lr_patience, lr_factor
-
-def reduce_lr_on_plateau(optimizer):
+# TODO: add metric to monitor and mode to the function signature
+def reduce_lr_on_plateau(optimizer, lr_patience, lr_factor):
     scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=lr_patience, factor=lr_factor)
     return {
         'optimizer': optimizer,

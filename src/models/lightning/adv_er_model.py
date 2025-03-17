@@ -5,18 +5,16 @@ from torchvision.utils import make_grid, save_image
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 
-from src.models.lightning.base_model import LitModel
-from data.image_processing import (
+from src.models.lightning.base_model import BaseModel
+from src.data.image_processing import (
     adversarial_erase,
     normalize_image_by_statistics,
     unnormalize_image_by_statistics
 )
 from src.train.helpers.adv_er_helper import load_accumulated_heatmap
-from train_config import mean, std, resized_image_res
 
 
-# TODO: rename class
-class LitModelAdversarialErasing(LitModel):
+class AdversarialErasingModel(BaseModel):
     def __init__(
         self, 
         model: torch.nn.Module, 

@@ -1,0 +1,31 @@
+data_dir: data/
+
+# Enable Tensor Cores for faster matrix multiplications, trading some 
+# precision for performance.
+# - 'high' gives the best speed-up but with reduced precision.
+# - 'medium' balances precision and performance.
+# - 'highest' (default) maintains full precision but may be slower.
+matmul_precision: medium
+
+neptune:
+  project: 'andreaf/polarlows'
+  api_key: ${oc.env:NEPTUNE_API_TOKEN}
+
+# Experiment params
+num_workers: 16
+
+# Loss and optimizer
+criterion: cross_entropy
+optimizer: adam
+
+# Training params
+batch_size: 16
+num_epochs: 100
+learning_rate: 5e-4
+
+# Early stopping
+es_patience: 10
+
+# Learning rate scheduler
+lr_patience: 5
+lr_factor: 0.5

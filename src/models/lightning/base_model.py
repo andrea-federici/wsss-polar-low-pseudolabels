@@ -9,11 +9,10 @@ from torch import nn
 import torch.optim as optim
 from lightning.pytorch import LightningModule
 
-from train.components.optimizer_configs import reduce_lr_on_plateau
+from src.train.components.optimizer_configs import reduce_lr_on_plateau
 
 
-# TODO: rename
-class LitModel(LightningModule):
+class BaseModel(LightningModule):
 
     def __init__(self, model: nn.Module, criterion: nn.Module, optimizer: optim.Optimizer):
         super().__init__()

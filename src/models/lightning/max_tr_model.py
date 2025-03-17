@@ -1,14 +1,12 @@
 import torch
 import torchvision.transforms.functional as F
 
-from lit_model import LitModel
-from data.image_processing import normalize_image_by_statistics, unnormalize_image_by_statistics
+from src.models.lightning import BaseModel
+from src.data.image_processing import normalize_image_by_statistics, unnormalize_image_by_statistics
 from src.train.helpers.max_tr_helper import calculate_max_transl_fractions
-from train_config import resized_image_res, mean, std
 
 
-# TODO: rename
-class LitModelCustomTransl(LitModel):
+class MaxTranslationsModel(BaseModel):
 
     def __init__(self, model: torch.nn.Module, criterion: torch.nn.Module, optimizer: torch.optim.Optimizer, max_translations_dict = None):
         super().__init__(model, criterion, optimizer)

@@ -1,11 +1,8 @@
-
 import torch.nn as nn
 
-from data_loader import create_data_loaders
-import train_config as tc
-from optimizers import adam
-from lit_model import LitModel
-from iterative_training.lit_model_custom_transl import LitModelCustomTransl
+from src.data.data_loading import create_data_loaders
+from src.train.components.optimizers import adam
+from src.models.lightning import BaseModel, MaxTranslationsModel
 
 
 def create_standard_setup(torch_model, transform = tc.transform_aug):

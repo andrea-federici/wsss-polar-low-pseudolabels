@@ -9,7 +9,7 @@ from train.loggers import create_neptune_logger
 import train_config as tc
 from models import Xception
 from train.components.trainers import create_trainer
-from src.models.lightning.adv_er_model import LitModelAdversarialErasing
+from src.models.lightning.adv_er_model import AdversarialErasingModel
 from attributions.gradcam import GradCAM
 from src.data.data_loading import create_data_loaders
 from data.image_processing import adversarial_erase
@@ -49,13 +49,13 @@ def run():
             tc.batch_size,
             tc.num_workers,
             transform_train=tc.transform_prep,
-            dataset_type='adversarial_erase'
+            dataset_type='adversarial_erasing'
         )
 
         criterion = torch.nn.CrossEntropyLoss()
         optimizer = adam(torch_model, learning_rate=tc.learning_rate)
 
-        lit_model = LitModelAdversarialErasing(
+        lit_model = AdversarialErasingModel(
             torch_model, 
             criterion=criterion,
             optimizer=optimizer,
