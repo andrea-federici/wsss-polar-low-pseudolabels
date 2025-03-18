@@ -2,6 +2,7 @@ import torch.optim as optim
 from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 import torch.nn as nn
 from lightning.pytorch import LightningModule
+from omegaconf import DictConfig
 
 from src.models.torch import Xception
 from src.models.lightning import (
@@ -24,16 +25,32 @@ def torch_model_getter(
 
 # TODO: add support for max_translations
 def lightning_model_getter(
-    lightning_model_name: str,
+    cfg: DictConfig,
     torch_model: nn.Module,
     criterion: nn.Module,
-    optimizer: optim.Optimizer,
+    optimizer_config: dict,
+    **kwargs
 ) -> LightningModule:
+    lightning_model_name = cfg.mode.lightning_model
     if lightning_model_name == 'base':
-        return BaseModel(torch_model, criterion, optimizer)
+        return BaseModel(torch_model, criterion, optimizer_config)
+    elif lightning_model_name == 'adversarial_erasing':
+        iteration = kwargs.get('iteration', None)
+        if not iteration:
+            raise ValueError("The 'iteration' argument is required for the "
+                "'adversarial_erasing' model.")
+        return AdversarialErasingModel(
+            torch_model,
+            criterion,
+            optimizer_config,
+            iteration,
+            cfg.mode.heatmaps.base_directory,
+            cfg.mode.heatmaps.threshold,
+            cfg.mode.heatmaps.fill_color
+        )
     else:
         raise ValueError(f"Invalid lightning model name: {lightning_model_name}. "
-            f"Available options: ['base']")
+            f"Available options: ['base', 'adversarial_erasing']")
 
 
 def criterion_getter(criterion_name: str):

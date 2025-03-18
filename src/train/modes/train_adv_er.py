@@ -3,108 +3,86 @@ from datetime import datetime
 
 import torch
 from torch.utils.data import DataLoader
+from omegaconf import DictConfig
 from tqdm import tqdm
 
-from train.loggers import create_neptune_logger
-import train_config as tc
-from models import Xception
-from train.components.trainers import create_trainer
-from src.models.lightning.adv_er_model import AdversarialErasingModel
-from attributions.gradcam import GradCAM
-from src.data.data_loading import create_data_loaders
-from data.image_processing import adversarial_erase
+from src.attributions.gradcam import GradCAM
+from src.data.image_processing import adversarial_erase
+from src.train.setups import get_train_setup
 from src.train.helpers.adv_er_helper import load_accumulated_heatmap
-from train.components.optimizers import adam
-from custom_datasets import ImageFilenameDataset
+from src.data.custom_datasets import ImageFilenameDataset
+from src.data.transforms import get_transform
 
 
-def run():
-    base_heatmaps_dir = 'heatmaps/'
-    max_iterations = 10
+def run(cfg: DictConfig) -> None:
+    for iteration in range(0, cfg.mode.max_iterations):
+        ts = get_train_setup(cfg, iteration=iteration)
 
-    for iteration in range(0, max_iterations):
-        neptune_logger = create_neptune_logger()
+        logger = ts.logger
+        lightning_model = ts.lightning_model
 
-        neptune_logger.experiment["source_files/train_config"] \
+        logger.experiment["source_files/train_config"] \
             .upload("train_config.py")
         
-        neptune_logger.experiment["source_files/train_adversarial_erasing"] \
+        logger.experiment["source_files/train_adversarial_erasing"] \
             .upload("train_adversarial_erasing.py")
         
-        neptune_logger.experiment["iteration"] = iteration
+        logger.experiment["iteration"] = iteration
 
-        neptune_logger.experiment[f"start_time"] = \
+        logger.experiment[f"start_time"] = \
             datetime.now().isoformat() 
 
         current_heatmaps_dir = os.path.join(
-            base_heatmaps_dir, f"iteration_{iteration}"
+            cfg.mode.heatmaps.base_directory, f"iteration_{iteration}"
         )
         os.makedirs(current_heatmaps_dir, exist_ok=True)
 
-        torch_model = Xception()
-
-        train_loader, val_loader, _ = create_data_loaders(
-            tc.train_dir(),
-            tc.test_dir(),
-            tc.batch_size,
-            tc.num_workers,
-            transform_train=tc.transform_prep,
-            dataset_type='adversarial_erasing'
-        )
-
-        criterion = torch.nn.CrossEntropyLoss()
-        optimizer = adam(torch_model, learning_rate=tc.learning_rate)
-
-        lit_model = AdversarialErasingModel(
-            torch_model, 
-            criterion=criterion,
-            optimizer=optimizer,
-            current_iteration=iteration,
-            base_heatmaps_dir=base_heatmaps_dir,
-            threshold=0.75,
-            fill_color=0
-        )
-
-        trainer = create_trainer(
-            neptune_logger, 
-            checkpoint_filename=f"adv_iteration_{iteration}"
-        )
-        trainer.fit(lit_model, train_loader, val_loader)
+        ts.trainer.fit(lightning_model, ts.train_loader, ts.val_loader)
 
         # Generate new heatmaps for next iteration
         train_val_data = ImageFilenameDataset(
-            tc.train_dir(), 
-            transform=tc.transform_prep
+            os.path.join(cfg.data_dir, "train"),
+            transform=get_transform(cfg, "val")
         )
         generate_and_save_heatmaps(
-            lit_model, 
+            lightning_model, 
             train_val_data, 
-            base_heatmaps_dir,
+            cfg.mode.heatmaps.directory,
             iteration,
             current_heatmaps_dir
         )
 
-        neptune_logger.experiment[f"end_time"] \
+        logger.experiment[f"end_time"] \
             = datetime.now().isoformat()
         
-        neptune_logger.experiment.stop()
+        logger.experiment.stop()
 
 
-def generate_and_save_heatmaps(model, dataset, base_heatmaps_dir, current_iteration, save_dir, batch_size=32):
+def generate_and_save_heatmaps(
+    model, 
+    dataset, 
+    base_heatmaps_dir, 
+    current_iteration, 
+    save_dir,
+    num_workers,
+    threshold,
+    fill_color
+):
     model.eval()
     device = next(model.parameters()).device # Get device from model
 
     dataloader = DataLoader(
         dataset, 
-        batch_size=batch_size, 
+        batch_size=32, 
         shuffle=False, 
-        num_workers=tc.num_workers
+        num_workers=num_workers
     )
     os.makedirs(save_dir, exist_ok=True)
 
     gradcam = GradCAM(model.model, device)
 
     with torch.no_grad():
+        # TODO: remove enumerate and batch_idx
         for batch_idx, (images, labels, img_paths) in enumerate(
             tqdm(dataloader, desc="Generating Heatmaps")
         ):
@@ -127,8 +105,8 @@ def generate_and_save_heatmaps(model, dataset, base_heatmaps_dir, current_iterat
                         img = adversarial_erase(
                             img.unsqueeze(0), 
                             accumulated_heatmap,
-                            threshold=0.75, # TODO: put this in config
-                            fill_color=0 # TODO: put this in config
+                            threshold,
+                            fill_color
                         ).squeeze(0)
 
                     heatmap = gradcam.generate_heatmap(

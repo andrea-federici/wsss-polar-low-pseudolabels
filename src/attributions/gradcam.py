@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from captum.attr import LayerGradCam
 
-from data.image_processing import convert_to_np_array, normalize_image_to_range
+from src.data.image_processing import convert_to_np_array, normalize_image_to_range
 
 import warnings
 

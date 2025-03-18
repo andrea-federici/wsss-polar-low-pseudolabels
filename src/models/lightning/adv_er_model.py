@@ -19,13 +19,13 @@ class AdversarialErasingModel(BaseModel):
         self, 
         model: torch.nn.Module, 
         criterion: torch.nn.Module, 
-        optimizer: torch.optim.Optimizer, 
+        optimizer_config: dict, 
         current_iteration: int, 
         base_heatmaps_dir: str, 
         threshold: float = 0.5, 
         fill_color: float = 0
     ):
-        super().__init__(model, criterion, optimizer)
+        super().__init__(model, criterion, optimizer_config)
         self.current_iteration = current_iteration
         self.base_heatmaps_dir = base_heatmaps_dir
         self.threshold = threshold

@@ -3,29 +3,31 @@ from omegaconf import DictConfig
 
 def get_transform(cfg: DictConfig, stage: str) -> transforms.Compose:
 
+    transforms_config = cfg.transforms
+
     image_size = (
-        cfg.data.transforms.image_width,
-        cfg.data.transforms.image_height
+        transforms_config.image_width,
+        transforms_config.image_height
     )
 
-    mean = cfg.data.transforms.normalization.mean
-    std = cfg.data.transforms.normalization.std
+    mean = transforms_config.normalization.mean
+    std = transforms_config.normalization.std
 
     if stage == 'train':
         transform_list = [
             transforms.RandomAffine(
-                degrees=cfg.data.transforms.augmentation.degrees,
-                translate=tuple(cfg.data.transforms.augmentation.translate_frac),
-                scale=tuple(cfg.data.transforms.augmentation.scale),
+                degrees=transforms_config.augmentation.degrees,
+                translate=tuple(transforms_config.augmentation.translate_frac),
+                scale=tuple(transforms_config.augmentation.scale),
                 fill=0
             ),
             transforms.Resize(image_size)
         ]
 
-        if cfg.data.transforms.augmentation.horizontal_flip:
+        if transforms_config.augmentation.horizontal_flip:
             transform_list.append(transforms.RandomHorizontalFlip())
         
-        if cfg.data.transforms.augmentation.vertical_flip:
+        if transforms_config.augmentation.vertical_flip:
             transform_list.append(transforms.RandomVerticalFlip())
         
         transform_list.extend([

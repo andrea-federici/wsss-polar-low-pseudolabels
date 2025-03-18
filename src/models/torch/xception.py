@@ -4,7 +4,7 @@ from torchinfo import summary
 import timm
 
 class Xception(nn.Module):
-    def __init__(self):
+    def __init__(self, num_classes=2):
         super(Xception, self).__init__()
         
         # Feature Extractor
@@ -17,7 +17,7 @@ class Xception(nn.Module):
             nn.ReLU(inplace=True),
             nn.Dropout(p=0.2),
 
-            nn.Linear(in_features=32, out_features=2)
+            nn.Linear(in_features=32, out_features=num_classes)
         )
     
     def forward(self, x):

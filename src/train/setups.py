@@ -29,12 +29,12 @@ class TrainSetup:
 
 # TODO: add support for optuna
 # TODO: add support for max_translations
-def get_train_setup(cfg: DictConfig) -> TrainSetup:
-    
+def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
+
     ## LOGGER ##
     neptune_logger = create_neptune_logger(
         cfg.neptune.project,
-        cfg.neptune.api_kei
+        cfg.neptune.api_key
     )
 
     ## TORCH MODEL ##
@@ -73,10 +73,11 @@ def get_train_setup(cfg: DictConfig) -> TrainSetup:
 
     ## LIGHTNING MODEL ##
     lightning_model = lightning_model_getter(
-        cfg.lightning_model,
+        cfg,
         torch_model,
         criterion,
-        optimizer_config
+        optimizer_config,
+        **kwargs
     )
 
     ## CALLBACKS ##
@@ -103,6 +104,7 @@ def get_train_setup(cfg: DictConfig) -> TrainSetup:
     # This is not required by the learning rate scheduler, but it is useful 
     # for logging the learning rate values at each step/epoch.
     callbacks.append(cb.LearningRateMonitor(logging_interval='epoch'))
+
 
     ## TRAINER ##
     trainer = Trainer(
