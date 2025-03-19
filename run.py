@@ -27,7 +27,6 @@ def run(cfg: DictConfig) -> None:
 
     mode = cfg.mode.name
     if mode == 'single':
-        print('RUNNING SINGLE')
         train_single.run(cfg)
     # elif mode == 'optuna':
     #     train_optuna.run(cfg)

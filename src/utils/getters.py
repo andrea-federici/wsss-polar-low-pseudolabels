@@ -35,18 +35,21 @@ def lightning_model_getter(
     if lightning_model_name == 'base':
         return BaseModel(torch_model, criterion, optimizer_config)
     elif lightning_model_name == 'adversarial_erasing':
+        print("kwargs:", kwargs)
         iteration = kwargs.get('iteration', None)
-        if not iteration:
+        if iteration is None:
             raise ValueError("The 'iteration' argument is required for the "
                 "'adversarial_erasing' model.")
+        transforms_config = kwargs.get('transforms_config', None)
         return AdversarialErasingModel(
             torch_model,
             criterion,
             optimizer_config,
             iteration,
             cfg.mode.heatmaps.base_directory,
+            transforms_config,
             cfg.mode.heatmaps.threshold,
-            cfg.mode.heatmaps.fill_color
+            cfg.mode.heatmaps.fill_color,
         )
     else:
         raise ValueError(f"Invalid lightning model name: {lightning_model_name}. "

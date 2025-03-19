@@ -72,13 +72,23 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
     }
 
     ## LIGHTNING MODEL ##
-    lightning_model = lightning_model_getter(
-        cfg,
-        torch_model,
-        criterion,
-        optimizer_config,
-        **kwargs
-    )
+    if cfg.mode.name == 'adversarial_erasing':
+        print("iteration:", kwargs['iteration'])
+        lightning_model = lightning_model_getter(
+            cfg,
+            torch_model,
+            criterion,
+            optimizer_config,
+            iteration=kwargs['iteration'],
+            transforms_config=cfg.transforms
+        )
+    else:
+        lightning_model = lightning_model_getter(
+            cfg,
+            torch_model,
+            criterion,
+            optimizer_config,
+        )
 
     ## CALLBACKS ##
 

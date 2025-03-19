@@ -47,9 +47,12 @@ def run(cfg: DictConfig) -> None:
         generate_and_save_heatmaps(
             lightning_model, 
             train_val_data, 
-            cfg.mode.heatmaps.directory,
+            cfg.mode.heatmaps.base_directory,
             iteration,
-            current_heatmaps_dir
+            current_heatmaps_dir,
+            cfg.num_workers,
+            cfg.mode.heatmaps.threshold,
+            cfg.mode.heatmaps.fill_color
         )
 
         logger.experiment[f"end_time"] \

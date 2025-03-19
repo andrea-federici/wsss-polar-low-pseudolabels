@@ -22,14 +22,16 @@ class AdversarialErasingModel(BaseModel):
         optimizer_config: dict, 
         current_iteration: int, 
         base_heatmaps_dir: str, 
+        transforms_config: dict,
         threshold: float = 0.5, 
-        fill_color: float = 0
+        fill_color: float = 0,
     ):
         super().__init__(model, criterion, optimizer_config)
         self.current_iteration = current_iteration
         self.base_heatmaps_dir = base_heatmaps_dir
         self.threshold = threshold
         self.fill_color = fill_color
+        self.transforms_config = transforms_config
         
 
     def training_step(self, batch, batch_idx):
@@ -49,10 +51,15 @@ class AdversarialErasingModel(BaseModel):
                     fill_color=self.fill_color
                 ).squeeze(0)
 
+            image_width = self.transforms_config.image_width
+            image_height = self.transforms_config.image_height
+            mean = self.transforms_config.normalization.mean
+            std = self.transforms_config.normalization.std
+
             erased_img = unnormalize_image_by_statistics(img, mean, std)
 
-            max_dx = resized_image_res[0] / 2
-            max_dy = resized_image_res[1] / 2
+            max_dx = image_width / 2
+            max_dy = image_height / 2
 
             max_translation_fraction = 0.2
             dx = torch.randint(
@@ -103,7 +110,7 @@ class AdversarialErasingModel(BaseModel):
 
         # Save a sample batch every N iterations
         if batch_idx % 20 == 0:
-            save_dir = "debug_images"
+            save_dir = "out/debug_images"
             os.makedirs(save_dir, exist_ok=True)
 
             num_samples = min(len(erased_images), 16) # Ensure we don't exceed 

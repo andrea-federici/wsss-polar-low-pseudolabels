@@ -58,7 +58,7 @@ early_stopping:
 
 # Checkpoint
 checkpoint:
-  directory: checkpoints
+  directory: out/checkpoints
   filename: best-checkpoint
 
 # Learning rate scheduler
