@@ -41,7 +41,7 @@ class AdversarialErasingModel(BaseModel):
         for img, label, img_path in zip(images, labels, img_paths):
             if self.current_iteration > 0:
                 accumulated_heatmap = load_accumulated_heatmap(
-                    self.base_heatmaps_dir, img_path, label, self.current_iteration, self.heatmap_files
+                    self.base_heatmaps_dir, img_path, label, self.current_iteration
                 )
 
                 img = adversarial_erase(

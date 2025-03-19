@@ -23,10 +23,11 @@ def load_heatmap(base_heatmaps_dir, current_iteration, img_path: str) -> torch.T
 def random_heatmap(base_heatmaps_dir, current_iteration):
     previous_heatmaps_dir = os.path.join(
         base_heatmaps_dir, 
-        f"iteration_{current_iteration-1}"
-    ) if current_iteration > 0 else None
+        f"iteration_{current_iteration}"
+    ) if current_iteration >= 0 else None # TODO: I dont think I need the if statement. this should always be fine to run
     
-    if previous_heatmaps_dir:
+    print(f"Previous heatmaps dir: {previous_heatmaps_dir}")
+    if previous_heatmaps_dir is not None:
         heatmap_files = [
             os.path.join(previous_heatmaps_dir, f)
             for f in os.listdir(previous_heatmaps_dir) 

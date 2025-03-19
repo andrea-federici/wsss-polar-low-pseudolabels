@@ -12,6 +12,7 @@ from src.train.setups import get_train_setup
 from src.train.helpers.adv_er_helper import load_accumulated_heatmap
 from src.data.custom_datasets import ImageFilenameDataset
 from src.data.transforms import get_transform
+from src.utils.neptune_utils import NeptuneLogger
 
 
 def run(cfg: DictConfig) -> None:
@@ -52,7 +53,8 @@ def run(cfg: DictConfig) -> None:
             current_heatmaps_dir,
             cfg.num_workers,
             cfg.mode.heatmaps.threshold,
-            cfg.mode.heatmaps.fill_color
+            cfg.mode.heatmaps.fill_color,
+            logger=logger
         )
 
         logger.experiment[f"end_time"] \
@@ -69,7 +71,8 @@ def generate_and_save_heatmaps(
     save_dir,
     num_workers,
     threshold,
-    fill_color
+    fill_color,
+    logger: NeptuneLogger
 ):
     model.eval()
     device = next(model.parameters()).device # Get device from model
@@ -106,16 +109,29 @@ def generate_and_save_heatmaps(
                         )
 
                         img = adversarial_erase(
-                            img.unsqueeze(0), 
+                            img, 
                             accumulated_heatmap,
                             threshold,
                             fill_color
-                        ).squeeze(0)
+                        )
 
                     heatmap = gradcam.generate_heatmap(
                         img, 
                         target_class=1
                     )
+
+                    heatmap_np = heatmap.cpu().numpy()
+                    img_overlay = gradcam.overlay_heatmap(
+                        img, 
+                        heatmap_np
+                    )
+
+                    # TODO: make this better
+                    if batch_idx == 40 or batch_idx == 41:
+                        logger.log_tensor_img(
+                            img_overlay,
+                            name=f"heatmap_{img_path}"
+                        )
 
                     # Save heatmap as a .pt file
                     heatmap_filename = os.path.join(

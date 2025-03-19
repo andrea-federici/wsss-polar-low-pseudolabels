@@ -1,4 +1,4 @@
-from lightning.pytorch.loggers import NeptuneLogger
+from src.utils.neptune_utils import NeptuneLogger
 
 
 def create_neptune_logger(
@@ -7,7 +7,7 @@ def create_neptune_logger(
     # log_model_checkpoints: bool = False,
 ) -> NeptuneLogger:
     return NeptuneLogger(
-        project=project,
+        project_name=project,
         api_key=api_key,
         # log_model_checkpoints=log_model_checkpoints,
         # mode="offline",

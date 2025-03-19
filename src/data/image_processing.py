@@ -269,7 +269,8 @@ def adversarial_erase(
             - If `fill_color` is a tensor and does not match the image 
                 channels.
     """
-    assert image.dim() == 4, "Expected image to be a 4D tensor (B, C, H, W)"
+    assert image.dim() == 4, "Expected image to be a 4D tensor (B, C, H, W), "
+    "but got shape {image.shape}"
     assert heatmap.dim() == 2, "Expected heatmap to be a 2D tensor (H, W)"
     
     B, C, H, W = image.shape

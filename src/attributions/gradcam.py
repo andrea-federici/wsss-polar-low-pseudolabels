@@ -154,6 +154,7 @@ class GradCAM:
         return normalize_image_to_range(ov_smooth_img, target_range=(0, 1))
     
 
+    # TODO: update this method to use the new generate_heatmap() method
     def generate_gradcam_overlay(
             self,
             input_image: torch.Tensor,
