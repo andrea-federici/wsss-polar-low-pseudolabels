@@ -1,8 +1,11 @@
 # .env file
 .env
 
-# Python files
+# Cache and logs
 __pycache__/
+/lightning_logs
+# .ipynb_checkpoints/
+# .neptune/
 
 # MacOS system files
 .DS_Store
@@ -12,9 +15,6 @@ __pycache__/
 
 # Data files
 /data
-
-# Lightning files
-/lightning_logs
 
 # Colab files
 colab_runner.ipynb
