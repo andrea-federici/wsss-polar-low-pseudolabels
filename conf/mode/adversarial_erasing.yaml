@@ -4,7 +4,7 @@ train_data_transform: val
 lightning_model: adversarial_erasing
 
 ## SPECIFIC TO ADVERSARIAL ERASING ##
-max_iterations: 10
+max_iterations: 20
 heatmaps:
   base_directory: out/heatmaps
   threshold: 0.75

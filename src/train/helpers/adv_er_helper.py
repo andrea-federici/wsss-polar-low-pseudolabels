@@ -11,10 +11,10 @@ def load_heatmap(base_heatmaps_dir, current_iteration, img_path: str) -> torch.T
         os.path.basename(img_path) + ".pt"
     )
     if os.path.exists(heatmap_path):
-        print(f"HEATMAP FOUND: {heatmap_path}")
+        # print(f"HEATMAP FOUND: {heatmap_path}")
         return torch.load(heatmap_path)
     else:
-        print(f"HEATMAP NOT FOUND: {heatmap_path}")
+        # print(f"HEATMAP NOT FOUND: {heatmap_path}")
         # Use a random heatmap if the heatmap is not found
         return random_heatmap(base_heatmaps_dir, current_iteration)
 
@@ -26,7 +26,7 @@ def random_heatmap(base_heatmaps_dir, current_iteration):
         f"iteration_{current_iteration}"
     ) if current_iteration >= 0 else None # TODO: I dont think I need the if statement. this should always be fine to run
     
-    print(f"Previous heatmaps dir: {previous_heatmaps_dir}")
+    # print(f"Previous heatmaps dir: {previous_heatmaps_dir}")
     if previous_heatmaps_dir is not None:
         heatmap_files = [
             os.path.join(previous_heatmaps_dir, f)
@@ -56,7 +56,7 @@ def load_matching_heatmap(base_heatmaps_dir, iteration, img_path: str) -> torch.
             iteration_dir,
             random.choice(matching_files)
         )
-        print(f"HEATMAP FOUND: {heatmap_path}")
+        # print(f"HEATMAP FOUND: {heatmap_path}")
         return torch.load(heatmap_path)
     
     # Fall back to a random heatmap from the iteration directory
@@ -65,12 +65,12 @@ def load_matching_heatmap(base_heatmaps_dir, iteration, img_path: str) -> torch.
         for file in os.listdir(iteration_dir) if file.endswith(".pt")
     ]
     if heatmap_files:
-        print(f"HEATMAP NOT FOUND, but found in iteration dir: {heatmap_path}")
+        # print(f"HEATMAP NOT FOUND, but found in iteration dir: {heatmap_path}")
         return torch.load(random.choice(heatmap_files))
 
     # Final fallback to any random heatmap if no files exist in the 
     # iteration folder
-    print(f"HEATMAP NOT FOUND, not even in iteration dir: {heatmap_path}")
+    # print(f"HEATMAP NOT FOUND, not even in iteration dir: {heatmap_path}")
     return random_heatmap(base_heatmaps_dir, iteration)
 
 
@@ -89,7 +89,7 @@ def load_accumulated_heatmap(base_heatmaps_dir, img_path, label, current_iterati
         if label == 1:  # Positive sample: use its own heatmap
             heatmap = load_heatmap(base_heatmaps_dir, it, img_path)
         else:  # Negative sample: use a random heatmap
-            print(f'Trying to find a matching heatmap for {img_path} and iteration {it}')
+            # print(f'Trying to find a matching heatmap for {img_path} and iteration {it}')
             heatmap = load_matching_heatmap(base_heatmaps_dir, it, img_path)
 
         accumulated_heatmap += heatmap

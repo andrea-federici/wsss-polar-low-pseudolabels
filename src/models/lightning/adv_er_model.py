@@ -61,7 +61,7 @@ class AdversarialErasingModel(BaseModel):
             max_dx = image_width / 2
             max_dy = image_height / 2
 
-            max_translation_fraction = 0.2
+            max_translation_fraction = 0.35
             dx = torch.randint(
                 int(-max_translation_fraction*max_dx), 
                 int(max_translation_fraction*max_dx+1), 
@@ -131,6 +131,44 @@ class AdversarialErasingModel(BaseModel):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        images, labels, _ = batch
-        loss = super().process_step('val', images, labels)
+        images, labels, img_paths = batch
+
+        erased_images = []
+        for img, label, img_path in zip(images, labels, img_paths):
+            if self.current_iteration > 0:
+                accumulated_heatmap = load_accumulated_heatmap(
+                    self.base_heatmaps_dir, img_path, label, self.current_iteration
+                )
+
+                img = adversarial_erase(
+                    img.unsqueeze(0), 
+                    accumulated_heatmap,
+                    threshold=self.threshold,
+                    fill_color=self.fill_color
+                ).squeeze(0)
+            
+            erased_images.append(img)
+        
+
+        # Convert list to batch tensor
+        erased_images = torch.stack(erased_images)
+
+        # Save a sample batch every N iterations
+        if batch_idx % 20 == 0:
+            save_dir = "out/val_debug_images"
+            os.makedirs(save_dir, exist_ok=True)
+
+            num_samples = min(len(erased_images), 16) # Ensure we don't exceed 
+            # batch size
+            sample_grid = make_grid(
+                erased_images[:num_samples], 
+                nrow=4,
+                normalize=True
+            )
+            save_image(sample_grid, os.path.join(
+                save_dir, 
+                f"it_{self.current_iteration}_batch_{batch_idx}.png"
+            ))
+
+        loss = super().process_step('val', erased_images, labels)
         return loss
