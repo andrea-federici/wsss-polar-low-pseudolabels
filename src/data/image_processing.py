@@ -1,6 +1,5 @@
-import os
 from io import BytesIO
-import cv2
+from typing import Union
 
 import numpy as np
 import torch
@@ -49,7 +48,9 @@ def normalize_image_to_range(image: np.ndarray, target_range=(0, 1)) -> np.ndarr
     return normalized_image
 
 
-def convert_to_np_array(image) -> np.ndarray:
+def convert_to_np_array(
+    image: Union[np.ndarray, torch.Tensor, Image.Image],
+) -> np.ndarray:
     """
     Convert an image to a NumPy array.
 
@@ -81,7 +82,9 @@ def convert_to_np_array(image) -> np.ndarray:
     elif isinstance(image, Image.Image):
         return np.array(image)
     else:
-        raise TypeError("Input image must be a PyTorch tensor or PIL image.")
+        raise TypeError(
+            "Input image must be a NumPy array, a PyTorch tensor or a PIL image."
+        )
 
 
 def normalize_image_by_statistics(image: torch.Tensor, mean, std) -> torch.Tensor:
@@ -216,6 +219,7 @@ def translate_image(
     return normalized_image
 
 
+# TODO: move to adv_er_helper.py
 def adversarial_erase(
     image: torch.Tensor, heatmap: torch.Tensor, threshold: float = 0.7, fill_color=0
 ) -> torch.Tensor:
@@ -314,7 +318,7 @@ def adversarial_erase(
     return erased_image
 
 
-def plot_to_pil_image(fig: Figure) -> Image:
+def plot_to_pil_image(fig: Figure) -> Image.Image:
     """
     Converts a matplotlib Figure to a PIL Image.
 

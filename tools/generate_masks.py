@@ -8,16 +8,32 @@ from tqdm import tqdm
 from src.train.helpers.adv_er_helper import load_accumulated_heatmap
 
 
-# TODO: at the moment this function is only able to generate masks from the
-# given heatmaps. It does not accumulate the heatmaps. So, it is currently
-# only usable for the iteration 0 heatmaps.
 def generate_masks_from_heatmaps(
     base_heatmaps_dir: str,
     mask_dir: str,
     mask_size: Tuple[int, int],  # (width, height)
     threshold: float,  # this must be the same as the one used during training
     iteration: int = 0,
-):
+) -> None:
+    """
+    Generates binary masks from accumulated heatmaps by applying a threshold and
+    resizing them.
+
+    Heatmaps from all iterations up to `iteration` are loaded from
+    `base_heatmaps_dir/iteration_<iteration>`, accumulated, resized to `mask_size`, and
+    thresholded to produce binary masks, which are saved in `mask_dir`.
+
+    Args:
+        base_heatmaps_dir (str): Directory containing heatmaps.
+        mask_dir (str): Directory to save generated masks.
+        mask_size (Tuple[int, int]): Output mask size (width, height).
+        threshold (float): Threshold for binarization.
+        iteration (int, optional): The last iteration to accumulate heatmaps from.
+            Defaults to 0.
+
+    Returns:
+        None: The function saves the generated masks as image files.
+    """
     os.makedirs(mask_dir, exist_ok=True)
     heatmap_filenames = [
         f
@@ -39,7 +55,7 @@ def generate_masks_from_heatmaps(
             base_heatmaps_dir, img_path, label=1, current_iteration=iteration + 1
         )
 
-        if len(heatmap.shape) > 2:
+        if len(heatmap.shape) > 2:  # TODO: is this needed?
             heatmap = heatmap.squeeze(0)
         heatmap = heatmap.numpy()
 
@@ -48,10 +64,6 @@ def generate_masks_from_heatmaps(
             mask_size,  # cv2.resize takes (width, height)
             interpolation=cv2.INTER_LINEAR,
         )
-
-        # print(f'Path: {heatmap_path}')
-        # if not heatmap:
-        #     print('Heatmap is None')
 
         binary_mask = (heatmap > threshold).astype(np.uint8)
 
