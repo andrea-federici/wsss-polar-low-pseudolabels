@@ -1,0 +1,2 @@
+HEATMAP_EXTENSION = ".pt"
+ITERATION_FOLDER_PREFIX = "iteration_"

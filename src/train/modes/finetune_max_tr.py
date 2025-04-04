@@ -6,7 +6,7 @@ from train.setup import create_max_tr_model_ckpt_setup, create_model_ckpt_setup
 from trainers import create_trainer
 import train.loggers as loggers
 import train_config as tc
-from src.train.helpers.max_tr_helper import batch_find_maximum_translations, average_bounding_box_area
+from src.train.helpers.maxtr import batch_find_maximum_translations, average_bounding_box_area
 
 import json
 

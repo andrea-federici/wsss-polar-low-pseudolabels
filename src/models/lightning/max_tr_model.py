@@ -3,7 +3,7 @@ import torchvision.transforms.functional as F
 
 from src.models.lightning import BaseModel
 from src.data.image_processing import normalize_image_by_statistics, unnormalize_image_by_statistics
-from src.train.helpers.max_tr_helper import calculate_max_transl_fractions
+from src.train.helpers.maxtr import calculate_max_transl_fractions
 
 
 class MaxTranslationsModel(BaseModel):

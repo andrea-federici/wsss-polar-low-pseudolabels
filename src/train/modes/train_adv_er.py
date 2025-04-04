@@ -9,11 +9,10 @@ from tqdm import tqdm
 from src.attributions.gradcam import GradCAM
 from src.data.image_processing import adversarial_erase
 from src.train.setups import get_train_setup
-from src.train.helpers.adv_er_helper import load_accumulated_heatmap
+from src.train.helpers.adver import load_accumulated_heatmap
 from src.data.custom_datasets import ImageFilenameDataset
 from src.data.transforms import get_transform
 from src.utils.neptune_utils import NeptuneLogger
-import src
 
 
 def run(cfg: DictConfig) -> None:
@@ -97,7 +96,7 @@ def generate_and_save_heatmaps(
 
                     if current_iteration > 0:
                         accumulated_heatmap = load_accumulated_heatmap(
-                            base_heatmaps_dir, img_path, label, current_iteration
+                            base_heatmaps_dir, img_path, label, current_iteration - 1
                         )
 
                         img = adversarial_erase(
