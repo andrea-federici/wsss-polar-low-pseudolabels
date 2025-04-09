@@ -7,16 +7,15 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from src.attributions.gradcam import GradCAM
-from src.data.image_processing import adversarial_erase
-from src.train.setups import get_train_setup
-from src.train.helpers.adver import load_accumulated_heatmap
+from src.train.setup import get_train_setup
+from src.train.helper import adversarial_erase, load_accumulated_heatmap
 from src.data.custom_datasets import ImageFilenameDataset
 from src.data.transforms import get_transform
 from src.utils.neptune_utils import NeptuneLogger
 
 
 def run(cfg: DictConfig) -> None:
-    for iteration in range(0, cfg.mode.max_iterations):
+    for iteration in range(0, cfg.mode.train_config.max_iterations):
         ts = get_train_setup(cfg, iteration=iteration)
 
         logger = ts.logger
@@ -32,8 +31,10 @@ def run(cfg: DictConfig) -> None:
 
         logger.experiment[f"start_time"] = datetime.now().isoformat()
 
+        heatmaps_config = cfg.mode.train_config.heatmaps
+
         current_heatmaps_dir = os.path.join(
-            cfg.mode.heatmaps.base_directory, f"iteration_{iteration}"
+            heatmaps_config.base_directory, f"iteration_{iteration}"
         )
         os.makedirs(current_heatmaps_dir, exist_ok=True)
 
@@ -41,17 +42,18 @@ def run(cfg: DictConfig) -> None:
 
         # Generate new heatmaps for next iteration
         train_val_data = ImageFilenameDataset(
-            os.path.join(cfg.data_dir, "train"), transform=get_transform(cfg, "val")
+            os.path.join(cfg.data_dir, "train"),
+            transform=get_transform(cfg.transforms, "val"),
         )
         generate_and_save_heatmaps(
             lightning_model,
             train_val_data,
-            cfg.mode.heatmaps.base_directory,
+            heatmaps_config.base_directory,
             iteration,
             current_heatmaps_dir,
             cfg.num_workers,
-            cfg.mode.heatmaps.threshold,
-            cfg.mode.heatmaps.fill_color,
+            heatmaps_config.threshold,
+            heatmaps_config.fill_color,
             logger=logger,
         )
 
@@ -106,8 +108,6 @@ def generate_and_save_heatmaps(
                     heatmap = gradcam.generate_heatmap(img, target_class=1)
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
-
-                    img_overlay = img_overlay.cpu().numpy()
 
                     # TODO: make this better
                     if batch_idx == 40 or batch_idx == 41:

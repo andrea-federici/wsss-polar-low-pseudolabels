@@ -2,6 +2,7 @@ import os
 from typing import Tuple
 
 import cv2
+import torch
 import numpy as np
 from tqdm import tqdm
 
@@ -44,14 +45,10 @@ def generate_masks_from_heatmaps(
     print(f"Loaded {len(heatmap_filenames)} heatmaps.")
 
     for filename in tqdm(heatmap_filenames, desc="Processing heatmaps"):
-        img_path = filename.replace(
-            ".pt", ""
-        )  # TODO: This works now, but when I will fix the
-        # naming of the heatmaps (.png.pt -> .pt), this will need to be changed and it
-        # should be .replace(".pt", ".png").
+        img_path = filename.replace(".pt", ".png")
         mask_path = os.path.join(mask_dir, filename.replace(".pt", ".png"))
 
-        heatmap = train.helpers.load_accumulated_heatmap(
+        heatmap = train.helper.load_accumulated_heatmap(
             base_heatmaps_dir, img_path, label=1, iteration=iteration
         )
 
@@ -107,7 +104,7 @@ def generate_multilabel_masks_from_heatmaps(
         mask_path = os.path.join(mask_dir, filename.replace(".pt", ".png"))
 
         # Generate the multi-label mask using accumulated heatmaps.
-        multi_label_mask = train.helpers.load_multiclass_mask(
+        multi_label_mask = train.helper.load_multiclass_mask(
             base_heatmaps_dir,
             img_path,
             label=1,
@@ -119,22 +116,31 @@ def generate_multilabel_masks_from_heatmaps(
         if len(multi_label_mask.shape) > 2:
             multi_label_mask = multi_label_mask.squeeze(0)
 
-        # Convert the multi-label mask to a NumPy array.
-        multi_label_mask = multi_label_mask.numpy()
+        import torch.nn.functional as F
 
-        # Resize the multi-label mask using linear interpolation for smooth transitions.
-        # Note: cv2.resize expects size as (width, height)
-        smoothed_mask = cv2.resize(
-            multi_label_mask, mask_size, interpolation=cv2.INTER_LINEAR
+        # Assume `heatmap` is a 2D tensor: shape [H, W]
+        heatmap = (
+            multi_label_mask.float().unsqueeze(0).unsqueeze(0)
+        )  # shape: [1, 1, H, W]
+
+        resized_heatmap = F.interpolate(
+            heatmap,
+            size=mask_size,
+            mode="nearest",  # <--- this avoids interpolation artifacts
         )
+
+        resized_heatmap = resized_heatmap.squeeze()  # shape: [new_height, new_width]
+
+        # Convert the multi-label mask to a NumPy array.
+        smoothed_mask = resized_heatmap.to(torch.int).numpy()
 
         # Optionally, if you want to visualize the mask as an image, you might normalize its values.
         # Here we scale the mask values to the range [0, 255].
         # (iteration + 1) is the maximum label value.
-        normalized_mask = (smoothed_mask / (iteration + 1)) * 255
+        # normalized_mask = (smoothed_mask / (iteration + 1)) * 255
 
         # Save the mask. Using uint8 to store as an image.
-        cv2.imwrite(mask_path, normalized_mask.astype(np.uint8))
+        cv2.imwrite(mask_path, smoothed_mask.astype(np.uint8))
 
 
 # In order to run this script, run the following command from the root directory of the
@@ -147,6 +153,6 @@ if __name__ == "__main__":
     threshold = 0.75
     iteration = 5
 
-    generate_masks_from_heatmaps(
+    generate_multilabel_masks_from_heatmaps(
         base_heatmaps_dir, mask_dir, mask_size, threshold, iteration
     )

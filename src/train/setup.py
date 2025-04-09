@@ -1,21 +1,21 @@
 from dataclasses import dataclass
 
 from torch.utils.data import DataLoader
-import lightning.pytorch.callbacks as cb
 from lightning.pytorch import LightningModule, Trainer
+import lightning.pytorch.callbacks as cb
 from lightning.pytorch.loggers import NeptuneLogger
 from omegaconf import DictConfig
 
 from src.data.data_loading import create_data_loaders
+from src.data.transforms import get_transform
+from src.train.logger import create_neptune_logger
 from src.utils.getters import (
     torch_model_getter,
     lightning_model_getter,
-    criterion_getter, 
+    criterion_getter,
     optimizer_getter,
-    lr_scheduler_getter
+    lr_scheduler_getter,
 )
-from src.train.loggers import create_neptune_logger
-from src.data.transforms import get_transform
 
 
 @dataclass
@@ -32,10 +32,7 @@ class TrainSetup:
 def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
 
     ## LOGGER ##
-    neptune_logger = create_neptune_logger(
-        cfg.neptune.project,
-        cfg.neptune.api_key
-    )
+    neptune_logger = create_neptune_logger(cfg.neptune.project, cfg.neptune.api_key)
 
     ## TORCH MODEL ##
     torch_model = torch_model_getter(cfg.torch_model, cfg.num_classes)
@@ -45,8 +42,8 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
         cfg.data_dir,
         cfg.batch_size,
         cfg.num_workers,
-        get_transform(cfg, cfg.mode.train_data_transform),
-        get_transform(cfg, 'val'),
+        get_transform(cfg.transforms, cfg.mode.train_data_transform),
+        get_transform(cfg.transforms, "val"),
         dataset_type=cfg.mode.dataset_type,
     )
 
@@ -63,24 +60,24 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
         cfg.lr_scheduler.factor,
     )
     optimizer_config = {
-        'optimizer': optimizer,
-        'lr_scheduler': {
-            'scheduler': lr_scheduler,
-            'monitor': cfg.lr_scheduler.monitor,
-            'interval': 'epoch'
-        }
+        "optimizer": optimizer,
+        "lr_scheduler": {
+            "scheduler": lr_scheduler,
+            "monitor": cfg.lr_scheduler.monitor,
+            "interval": "epoch",
+        },
     }
 
     ## LIGHTNING MODEL ##
-    if cfg.mode.name == 'adversarial_erasing':
-        print("iteration:", kwargs['iteration'])
+    if cfg.mode.name == "adversarial_erasing":
+        print("iteration:", kwargs["iteration"])
         lightning_model = lightning_model_getter(
             cfg,
             torch_model,
             criterion,
             optimizer_config,
-            iteration=kwargs['iteration'],
-            transforms_config=cfg.transforms
+            iteration=kwargs["iteration"],
+            transforms_config=cfg.transforms,
         )
     else:
         lightning_model = lightning_model_getter(
@@ -95,37 +92,40 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
     callbacks = []
 
     # Early Stopping
-    callbacks.append(cb.EarlyStopping(
-        monitor='val_loss',
-        mode='min',
-        patience=cfg.early_stopping.patience
-    ))
+    callbacks.append(
+        cb.EarlyStopping(
+            monitor=cfg.early_stopping.monitor,
+            mode=cfg.early_stopping.mode,
+            patience=cfg.early_stopping.patience,
+        )
+    )
 
     # Model Checkpoint
-    callbacks.append(cb.ModelCheckpoint(
-        monitor='val_loss',
-        mode='min',
-        save_top_k=1,
-        dirpath=cfg.checkpoint.directory,
-        filename=cfg.checkpoint.filename,
-    ))
+    callbacks.append(
+        cb.ModelCheckpoint(
+            monitor=cfg.checkpoint.monitor,
+            mode=cfg.checkpoint.mode,
+            save_top_k=1,
+            dirpath=cfg.checkpoint.directory,
+            filename=cfg.checkpoint.filename,
+        )
+    )
 
     # Learning Rate Monitor
-    # This is not required by the learning rate scheduler, but it is useful 
+    # This is not required by the learning rate scheduler, but it is useful
     # for logging the learning rate values at each step/epoch.
-    callbacks.append(cb.LearningRateMonitor(logging_interval='epoch'))
-
+    callbacks.append(cb.LearningRateMonitor(logging_interval="epoch"))
 
     ## TRAINER ##
     trainer = Trainer(
-        logger = neptune_logger,
-        max_epochs = cfg.max_epochs,
+        logger=neptune_logger,
+        max_epochs=cfg.max_epochs,
         callbacks=callbacks,
         accelerator=cfg.hardware.accelerator,
         devices=cfg.hardware.devices,
         check_val_every_n_epoch=1,
         enable_progress_bar=True,
-        log_every_n_steps=1
+        log_every_n_steps=1,
     )
 
     return TrainSetup(
@@ -133,5 +133,5 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
         train_loader=train_loader,
         val_loader=val_loader,
         trainer=trainer,
-        logger=neptune_logger
+        logger=neptune_logger,
     )

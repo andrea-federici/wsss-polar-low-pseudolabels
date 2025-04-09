@@ -5,7 +5,7 @@ import torch
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-from src.train.modes import (
+from src.train.mode import (
     train_single,
     # train_optuna,
     train_adv_er,
@@ -13,7 +13,7 @@ from src.train.modes import (
 )
 
 
-@hydra.main(version_base=None, config_path='conf', config_name='config')
+@hydra.main(version_base=None, config_path="conf", config_name="config")
 def run(cfg: DictConfig) -> None:
     validate_hardware_config(cfg)
     load_dotenv()
@@ -26,25 +26,24 @@ def run(cfg: DictConfig) -> None:
     torch.set_float32_matmul_precision(cfg.matmul_precision)
 
     mode = cfg.mode.name
-    if mode == 'single':
+    if mode == "single":
         train_single.run(cfg)
     # elif mode == 'optuna':
     #     train_optuna.run(cfg)
-    elif mode == 'adversarial_erasing':
+    elif mode == "adversarial_erasing":
         train_adv_er.run(cfg)
     # elif mode == 'max_translations':
     #     finetune_max_tr.run(cfg)
     else:
-        raise ValueError(f'Invalid mode: {mode}')
+        raise ValueError(f"Invalid mode: {mode}")
 
 
 def validate_hardware_config(cfg):
-    if cfg.hardware.accelerator == 'gpu' or cfg.hardware.accelerator == 'cuda':
+    if cfg.hardware.accelerator == "gpu" or cfg.hardware.accelerator == "cuda":
         if not torch.cuda.is_available():
-            print('Error: GPU was requested but is not available on this '
-                'machine.')
+            print("Error: GPU was requested but is not available on this " "machine.")
             sys.exit(1)
-    print('Hardware configuration is valid.')
+    print("Hardware configuration is valid.")
 
 
 if __name__ == "__main__":

@@ -6,45 +6,50 @@ import pandas as pd
 from einops import rearrange
 from lightning.pytorch.loggers import NeptuneLogger as LightningNeptuneLogger
 from torch import Tensor
-from typing import (Any, List, Mapping, Optional, Union)
+from typing import Any, List, Mapping, Optional, Union
 
 from neptune.types import File
 import logging
 
+
 class _FilterCallback(logging.Filterer):
     def filter(self, record: logging.LogRecord):
         return not (
-                record.name == "neptune"
-                and record.getMessage().startswith(
-            "Error occurred during asynchronous operation processing: X-coordinates (step) must be strictly increasing for series attribute"
-        )
+            record.name == "neptune"
+            and record.getMessage().startswith(
+                "Error occurred during asynchronous operation processing: X-coordinates (step) must be strictly increasing for series attribute"
+            )
         )
 
+
 def save_figure(fig, filename: str, as_html=False, as_pickle=False):
-    if filename.endswith('.html'):
+    if filename.endswith(".html"):
         as_html = True
         filename = filename[:-5]
-    elif filename.endswith('.pkl'):
+    elif filename.endswith(".pkl"):
         as_pickle = True
         filename = filename[:-4]
     if not (as_html or as_pickle):
         as_html = False  # save as html if nothing is specified
     if as_html:
         import mpld3
-        with open(filename + '.html', 'w') as fp:
+
+        with open(filename + ".html", "w") as fp:
             mpld3.save_html(fig, fp)
     if as_pickle:
         import pickle
-        with open(filename + '.pkl', 'wb') as fp:
+
+        with open(filename + ".pkl", "wb") as fp:
             pickle.dump(fig, fp)
 
 
 def ensure_list(value: Any) -> List:
     # if isinstance(value, Sequence) and not isinstance(value, str):
-    if hasattr(value, '__iter__') and not isinstance(value, str):
+    if hasattr(value, "__iter__") and not isinstance(value, str):
         return list(value)
     else:
         return [value]
+
 
 class NeptuneLogger(LightningNeptuneLogger):
     """Extensions of PyTorch Lightning
@@ -87,32 +92,36 @@ class NeptuneLogger(LightningNeptuneLogger):
             :class:`~pytorch_lightning.loggers.NeptuneLogger`.
     """
 
-    def __init__(self,
-                 api_key: Optional[str] = None,
-                 project_name: Optional[str] = None,
-                 experiment_name: Optional[str] = None,
-                 tags: Optional[Union[str, List]] = None,
-                 params: Optional[Mapping] = None,
-                 save_dir: Optional[str] = None,
-                 debug: bool = False,
-                 prefix: Optional[str] = 'logs',
-                 upload_stdout: bool = False,
-                 **kwargs):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        project_name: Optional[str] = None,
+        experiment_name: Optional[str] = None,
+        tags: Optional[Union[str, List]] = None,
+        params: Optional[Mapping] = None,
+        save_dir: Optional[str] = None,
+        debug: bool = False,
+        prefix: Optional[str] = "logs",
+        upload_stdout: bool = False,
+        **kwargs,
+    ):
         prefix = prefix or ""
         if tags is not None:
-            kwargs['tags'] = ensure_list(tags)
-        mode = 'debug' if debug else 'async'
-        super(NeptuneLogger, self).__init__(api_key=api_key,
-                                            project=project_name,
-                                            name=experiment_name,
-                                            log_model_checkpoints=False,
-                                            prefix=prefix,
-                                            capture_stdout=upload_stdout,
-                                            mode=mode,
-                                            **kwargs)
+            kwargs["tags"] = ensure_list(tags)
+        mode = "debug" if debug else "async"
+        super(NeptuneLogger, self).__init__(
+            api_key=api_key,
+            project=project_name,
+            name=experiment_name,
+            log_model_checkpoints=False,
+            prefix=prefix,
+            capture_stdout=upload_stdout,
+            mode=mode,
+            **kwargs,
+        )
         self.save_dir = save_dir
         if params is not None:
-            self.run['parameters'] = params
+            self.run["parameters"] = params
 
     @property
     def save_dir(self) -> Optional[str]:
@@ -130,18 +139,20 @@ class NeptuneLogger(LightningNeptuneLogger):
         else:
             self._save_dir = os.path.join(os.getcwd(), ".neptune")
 
-    def log_metric(self,
-                   metric_name: str,
-                   metric_value: Union[Tensor, float, str],
-                   step: Optional[int] = None):
+    def log_metric(
+        self,
+        metric_name: str,
+        metric_value: Union[Tensor, float, str],
+        step: Optional[int] = None,
+    ):
         # todo log metric series at once
-        self.run[f'logs/{metric_name}'].log(metric_value, step)
+        self.run[f"logs/{metric_name}"].log(metric_value, step)
 
     def _artifact_storage_path(self, name, extension: str = None):
         # add extension to name
         if extension is not None:
-            if not extension.startswith('.'):
-                extension = '.' + extension
+            if not extension.startswith("."):
+                extension = "." + extension
             if not name.endswith(extension):
                 name += extension
         else:
@@ -149,16 +160,19 @@ class NeptuneLogger(LightningNeptuneLogger):
         # save artifact with temporary random id
         from random import choice
         from string import ascii_letters
-        rnd = ''.join([choice(ascii_letters) for _ in range(16)]) + extension
+
+        rnd = "".join([choice(ascii_letters) for _ in range(16)]) + extension
         # create artifact path
         os.makedirs(self.save_dir, exist_ok=True)
         id_path = os.path.join(self.save_dir, rnd)
         return id_path, name
 
-    def log_artifact(self,
-                     filename: str,
-                     artifact_name: Optional[str] = None,
-                     delete_after: bool = False):
+    def log_artifact(
+        self,
+        filename: str,
+        artifact_name: Optional[str] = None,
+        delete_after: bool = False,
+    ):
         if artifact_name is None:
             # './dir/file.ext' -> 'file.ext'
             artifact_name = os.path.basename(filename)
@@ -175,52 +189,54 @@ class NeptuneLogger(LightningNeptuneLogger):
             array (array_like): The array to be logged.
             name (str): The name of the file. (default: :obj:`'array'`)
         """
-        path, name = self._artifact_storage_path(name, extension='.npy')
+        path, name = self._artifact_storage_path(name, extension=".npy")
         np.save(path, array)
         self.log_artifact(path, artifact_name=name, delete_after=True)
 
-    def log_dataframe(self, df: pd.DataFrame, name: str = 'dataframe'):
+    def log_dataframe(self, df: pd.DataFrame, name: str = "dataframe"):
         """Log a dataframe as csv.
 
         Args:
             df (DataFrame): The dataframe to be logged.
             name (str): The name of the file. (default: :obj:`'dataframe'`)
         """
-        path, name = self._artifact_storage_path(name, extension='.csv')
-        df.to_csv(path, index=True, index_label='index')
+        path, name = self._artifact_storage_path(name, extension=".csv")
+        df.to_csv(path, index=True, index_label="index")
         self.log_artifact(path, artifact_name=name, delete_after=True)
 
-    def log_figure(self, fig, name: str = 'figure'):
+    def log_figure(self, fig, name: str = "figure"):
         """Log a matplotlib figure as html.
 
         Args:
             fig (Figure): The matplotlib figure to be logged.
             name (str): The name of the file. (default: :obj:`'figure'`)
         """
-        path, name = self._artifact_storage_path(name, extension='.html')
+        path, name = self._artifact_storage_path(name, extension=".html")
         save_figure(fig, path)
         self.log_artifact(path, artifact_name=name, delete_after=True)
 
-    def log_tensor_img(self, tensor: Union[Tensor, np.array], name: str = 'tensor'):
+    def log_tensor_img(self, tensor: Union[Tensor, np.array], name: str = "tensor"):
         """
         Log an image represented as a torch Tensor or a Numpy Array
         """
-        path, name = self._artifact_storage_path(name, extension='.png')
-        if isinstance(tensor, Tensor) and tensor.is_cuda:
-            tensor = tensor.cpu()
+        path, name = self._artifact_storage_path(name, extension=".png")
+        if isinstance(tensor, Tensor):
+            if tensor.is_cuda:
+                tensor = tensor.cpu()
+
+            # Remove batch dimension if present
+            if tensor.ndim == 4:
+                tensor = tensor.squeeze(0)
+
+            # Convert from CHW to HWC (Neptune requires HWC format)
+            tensor = tensor.permute(1, 2, 0)
+
         File.as_image(tensor)._save(path)
         self.log_artifact(path, artifact_name=name, delete_after=True)
 
-
     # OLD METHODS
 
-    def log_pred_df(self,
-                    name,
-                    idx,
-                    y,
-                    yhat,
-                    label_y='true',
-                    label_yhat='pred'):
+    def log_pred_df(self, name, idx, y, yhat, label_y="true", label_yhat="pred"):
         """Log a csv containing predictions and true values. Only works for
         univariate timeseries.
 
@@ -232,15 +248,17 @@ class NeptuneLogger(LightningNeptuneLogger):
         :param label_yhat: predictions
         :return:
         """
-        y = rearrange(y, 'b ... -> b (...)')
-        yhat = rearrange(yhat, 'b ... -> b (...)')
+        y = rearrange(y, "b ... -> b (...)")
+        yhat = rearrange(yhat, "b ... -> b (...)")
         if isinstance(label_y, str):
-            label_y = [f'{label_y}_{i}' for i in range(y.shape[1])]
+            label_y = [f"{label_y}_{i}" for i in range(y.shape[1])]
         if isinstance(label_yhat, str):
-            label_yhat = [f'{label_yhat}_{i}' for i in range(yhat.shape[1])]
-        df = pd.DataFrame(data=np.concatenate([y, yhat], axis=-1),
-                          columns=label_y + label_yhat,
-                          index=idx)
-        df.to_csv(name, index=True, index_label='datetime')
+            label_yhat = [f"{label_yhat}_{i}" for i in range(yhat.shape[1])]
+        df = pd.DataFrame(
+            data=np.concatenate([y, yhat], axis=-1),
+            columns=label_y + label_yhat,
+            index=idx,
+        )
+        df.to_csv(name, index=True, index_label="datetime")
         self.experiment.log_artifact(name)
         os.remove(name)

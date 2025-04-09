@@ -14,16 +14,19 @@ data_dir: data
 
 ## TRANSFORMS ##
 transforms:
-  image_width: 500
-  image_height: 500
+  image_width: 512
+  image_height: 512
 
   normalization:
     mean: [0.2872, 0.2872, 0.4595]
     std: [0.1806, 0.1806, 0.2621]
 
+# This augmentation is used only if train_data_transform is set to 'train' in the 
+# training mode
   augmentation:
-    translate_frac: [0.4, 0.4] # Using Optuna, the best value was found to be 0.4113
-    degrees: 20
+    translate_frac: [0.4, 0.4] # Using Optuna, the best value was found to be 0.4113, 
+                               # (with degrees: 20, scale: [0.9, 1.1])
+    degrees: 45
     scale: [0.9, 1.1]
     horizontal_flip: true
     vertical_flip: true
@@ -47,17 +50,21 @@ optimizer: adam
 
 ## TRAINING ##
 batch_size: 16
-max_epochs: 100
+max_epochs: 200
 learning_rate: 5e-4
 
 ## CALLBACKS ##
 
 # Early stopping
 early_stopping:
-  patience: 10
+  monitor: val_loss
+  mode: min
+  patience: 20
 
 # Checkpoint
 checkpoint:
+  monitor: val_loss
+  mode: min
   directory: out/checkpoints
   filename: best-checkpoint
 

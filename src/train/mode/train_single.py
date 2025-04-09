@@ -1,6 +1,6 @@
 from omegaconf import DictConfig
 
-from src.train.setups import get_train_setup
+from src.train.setup import get_train_setup
 
 
 def run(cfg: DictConfig) -> None:

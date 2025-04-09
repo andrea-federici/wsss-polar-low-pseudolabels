@@ -4,14 +4,17 @@ import torch
 from torchvision.utils import make_grid, save_image
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
+from omegaconf import DictConfig
 
-from src.models.lightning.base_model import BaseModel
 from src.data.image_processing import (
-    adversarial_erase,
     normalize_image_by_statistics,
     unnormalize_image_by_statistics,
 )
-from src import train
+from src.models.lightning import BaseModel
+from src.train.helper import (
+    adversarial_erase,
+    load_accumulated_heatmap,
+)
 
 
 class AdversarialErasingModel(BaseModel):
@@ -21,16 +24,13 @@ class AdversarialErasingModel(BaseModel):
         criterion: torch.nn.Module,
         optimizer_config: dict,
         current_iteration: int,
-        base_heatmaps_dir: str,
+        train_config: DictConfig,
         transforms_config: dict,
-        threshold: float = 0.5,
-        fill_color: float = 0,
     ):
         super().__init__(model, criterion, optimizer_config)
         self.current_iteration = current_iteration
-        self.base_heatmaps_dir = base_heatmaps_dir
-        self.threshold = threshold
-        self.fill_color = fill_color
+        self.base_heatmaps_dir = train_config.heatmaps.base_directory
+        self.train_config = train_config
         self.transforms_config = transforms_config
 
     def training_step(self, batch, batch_idx):
@@ -39,15 +39,15 @@ class AdversarialErasingModel(BaseModel):
         erased_images = []
         for img, label, img_path in zip(images, labels, img_paths):
             if self.current_iteration > 0:
-                accumulated_heatmap = train.helpers.load_accumulated_heatmap(
+                accumulated_heatmap = load_accumulated_heatmap(
                     self.base_heatmaps_dir, img_path, label, self.current_iteration - 1
                 )
 
                 img = adversarial_erase(
                     img.unsqueeze(0),
                     accumulated_heatmap,
-                    threshold=self.threshold,
-                    fill_color=self.fill_color,
+                    threshold=self.train_config.heatmaps.threshold,
+                    fill_color=self.train_config.heatmaps.fill_color,
                 ).squeeze(0)
 
             image_width = self.transforms_config.image_width
@@ -57,25 +57,26 @@ class AdversarialErasingModel(BaseModel):
 
             erased_img = unnormalize_image_by_statistics(img, mean, std)
 
-            max_dx = image_width / 2
-            max_dy = image_height / 2
+            aug_config = self.train_config.aug
 
-            max_translation_fraction = 0.35
+            # If translate_frac=0.2, and the image size is (500, 500), the possible
+            # translation range is [-100, 100] in both x and y directions.
+            max_translation_fraction = aug_config.translate_frac
             dx = torch.randint(
-                int(-max_translation_fraction * max_dx),
-                int(max_translation_fraction * max_dx + 1),
+                int(-max_translation_fraction * image_width),
+                int(max_translation_fraction * image_width + 1),  # +1 to include max
                 size=(1,),
             ).item()
             dy = torch.randint(
-                int(-max_translation_fraction * max_dy),
-                int(max_translation_fraction * max_dy + 1),
+                int(-max_translation_fraction * image_height),
+                int(max_translation_fraction * image_height + 1),  # +1 to include max
                 size=(1,),
             ).item()
 
-            max_rotation = 20
+            max_rotation = aug_config.degrees
             angle = torch.randint(-max_rotation, max_rotation + 1, size=(1,)).item()
 
-            max_scale_fraction = 0.1
+            max_scale_fraction = aug_config.scale
             scale = 1.0 + (torch.rand(1).item() - 0.5) * max_scale_fraction * 2
 
             erased_img = F.affine(
@@ -84,16 +85,19 @@ class AdversarialErasingModel(BaseModel):
                 translate=(dx, dy),
                 scale=scale,
                 shear=[0.0, 0.0],
-                fill=[0],  # black
+                fill=[0],  # black in normalized image (gray-ish in original image)
             )
 
-            random_transforms = transforms.Compose(
-                [
-                    transforms.RandomApply([transforms.RandomHorizontalFlip()], p=0.5),
-                    transforms.RandomApply([transforms.RandomVerticalFlip()], p=0.5),
-                ]
-            )
-            erased_img = random_transforms(erased_img)
+            flips = []
+
+            if aug_config.horizontal_flip:
+                flips.append(transforms.RandomHorizontalFlip(p=0.5))
+
+            if aug_config.vertical_flip:
+                flips.append(transforms.RandomVerticalFlip(p=0.5))
+
+            flips_transform = transforms.Compose(flips)
+            erased_img = flips_transform(erased_img)
 
             erased_img = normalize_image_by_statistics(erased_img, mean, std)
 
@@ -128,15 +132,15 @@ class AdversarialErasingModel(BaseModel):
         erased_images = []
         for img, label, img_path in zip(images, labels, img_paths):
             if self.current_iteration > 0:
-                accumulated_heatmap = train.helpers.load_accumulated_heatmap(
+                accumulated_heatmap = load_accumulated_heatmap(
                     self.base_heatmaps_dir, img_path, label, self.current_iteration - 1
                 )
 
                 img = adversarial_erase(
                     img.unsqueeze(0),
                     accumulated_heatmap,
-                    threshold=self.threshold,
-                    fill_color=self.fill_color,
+                    threshold=self.train_config.heatmaps.threshold,
+                    fill_color=self.train_config.heatmaps.fill_color,
                 ).squeeze(0)
 
             erased_images.append(img)

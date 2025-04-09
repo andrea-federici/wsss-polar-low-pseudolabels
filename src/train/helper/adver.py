@@ -2,8 +2,107 @@ import os
 import random
 
 import torch
+import torchvision.transforms.functional as T
 
-from src import utils
+from src.utils.constants import ITERATION_FOLDER_PREFIX, HEATMAP_EXTENSION
+
+
+def adversarial_erase(
+    image: torch.Tensor, heatmap: torch.Tensor, threshold: float = 0.7, fill_color=0
+) -> torch.Tensor:
+    """
+    Removes (erases) regions in the image where the corresponding heatmap
+    values exceed a given threshold. The erased areas are replaced with a
+    specified fill color.
+
+    Args:
+        image (torch.Tensor):
+            A 4D tensor of shape (B, C, H, W) representing an image, where B
+            is the batch size, C is the number of channels, and (H, W) are
+            the spatial dimensions.
+        heatmap (torch.Tensor):
+            A 2D tensor of shape (h, w) representing the attention map, which
+            indicates which regions should be erased. The heatmap will be
+            resized to match (H, W) of the image.
+        threshold (float, optional):
+            A threshold value in the range [0, 1] that determines which
+            regions are erased. Pixels in the heatmap greater than this
+            threshold will be erased. Default is 0.7.
+        fill_color (int, float, or torch.Tensor, optional):
+            The color or value used to fill erased regions. If a scalar (int
+            or float), all erased regions will be filled with this value. If a
+            tensor, it must have shape (C,) to specify different colors per
+            channel. Default is 0.
+
+    Returns:
+        torch.Tensor:
+            A new tensor of the same shape as `image` (B, C, H, W) with the
+            specified regions erased.
+
+    Raises:
+        AssertionError:
+            - If `image` is not a 4D tensor.
+            - If `heatmap` is not a 2D tensor.
+            - If `fill_color` is a tensor and does not match the image
+                channels.
+    """
+    assert image.dim() == 4, "Expected image to be a 4D tensor (B, C, H, W), "
+    "but got shape {image.shape}"
+    assert heatmap.dim() == 2, "Expected heatmap to be a 2D tensor (H, W)"
+
+    B, C, H, W = image.shape
+
+    heatmap = T.resize(
+        heatmap.unsqueeze(0),  # (1, h, w)
+        (H, W),
+        interpolation=T.InterpolationMode.BILINEAR,
+        antialias=True,
+    ).unsqueeze(
+        0
+    )  # Now (1, 1, H, W)
+
+    # Expand heatmap: (1, 1, H, W) -> (B, 1, H, W) to match batch
+    # size.
+    heatmap = heatmap.expand(B, 1, H, W)
+
+    # If fill_color is a scalar (int or float), convert it to a tensor
+    if isinstance(fill_color, (int, float)):
+        fill_color = torch.full(
+            (B, C, 1, 1), fill_color, dtype=image.dtype, device=image.device
+        )
+    else:
+        # Ensure fill_color has the correct number of channels (C)
+        assert (
+            fill_color.shape[0] == C
+        ), "fill_color should match the number \
+            of channels of the image"
+        fill_color = fill_color.view(1, C, 1, 1).expand(B, C, H, W)
+
+    # Create erase mask: (B, 1, H, W) -> broadcast to (B, C, H, W)
+    erase_mask = (heatmap > threshold).expand(B, C, H, W)
+
+    # Clone images to avoid modifying original tensors
+    erased_image = image.clone()
+
+    print(f"erased_image shape: {erased_image.shape}, dtype: {erased_image.dtype}")
+    print(f"erase_mask shape: {erase_mask.shape}, dtype: {erase_mask.dtype}")
+    print(f"fill_color shape: {fill_color.shape}, dtype: {fill_color.dtype}")
+    print(f"Expanded fill_color shape: {fill_color.expand_as(erased_image).shape}")
+
+    # Check how many elements are being accessed
+    print(f"erase_mask sum: {erase_mask.sum().item()} (number of pixels affected)")
+
+    if torch.isnan(erased_image).any():
+        print("NaN detected in erased_image!")
+    if torch.isnan(fill_color).any():
+        print("NaN detected in fill_color!")
+    if torch.isnan(erase_mask).any():
+        print("NaN detected in erase_mask!")
+
+    # Apply erasing by filling masked regions with the specified fill color
+    erased_image[erase_mask] = fill_color.expand_as(erased_image)[erase_mask]
+
+    return erased_image
 
 
 def load_heatmap(base_heatmaps_dir: str, iteration: int, img_name: str) -> torch.Tensor:
@@ -50,8 +149,8 @@ def load_heatmap(base_heatmaps_dir: str, iteration: int, img_name: str) -> torch
     # Construct the heatmap path
     heatmap_path = os.path.join(
         base_heatmaps_dir,
-        utils.constants.ITERATION_FOLDER_PREFIX + str(iteration),
-        img_root + utils.constants.HEATMAP_EXTENSION,
+        ITERATION_FOLDER_PREFIX + str(iteration),
+        img_root + HEATMAP_EXTENSION,
     )
 
     if os.path.exists(heatmap_path):
@@ -87,20 +186,20 @@ def random_heatmap(base_heatmaps_dir: str, iteration: int) -> torch.Tensor:
             folder.
 
     Raises:
-        FileNotFoundError: If the heatmap directory for the given iteration does not exist
-            or if there are no heatmap files in the directory.
+        FileNotFoundError: If the heatmap directory for the given iteration does not
+            exist or if there are no heatmap files in the directory.
     """
     assert iteration >= 0, "Iteration must be greater than or equal to 0"
 
     heatmaps_dir = os.path.join(
         base_heatmaps_dir,
-        utils.constants.ITERATION_FOLDER_PREFIX + str(iteration),
+        ITERATION_FOLDER_PREFIX + str(iteration),
     )
 
     heatmap_files = [
         os.path.join(heatmaps_dir, f)
         for f in os.listdir(heatmaps_dir)
-        if f.endswith(utils.constants.HEATMAP_EXTENSION)
+        if f.endswith(HEATMAP_EXTENSION)
     ]
 
     # If heatmap_files is empty, raise an error
@@ -151,13 +250,13 @@ def load_matching_heatmap(
     # img_prefix = os.path.basename(img_path)[:6]  # First 6 characters
     heatmaps_dir = os.path.join(
         base_heatmaps_dir,
-        utils.constants.ITERATION_FOLDER_PREFIX + str(iteration),
+        ITERATION_FOLDER_PREFIX + str(iteration),
     )
 
     matching_files = [
         f
         for f in os.listdir(heatmaps_dir)
-        if f.startswith(img_prefix) and f.endswith(utils.constants.HEATMAP_EXTENSION)
+        if f.startswith(img_prefix) and f.endswith(HEATMAP_EXTENSION)
     ]
 
     if not matching_files:
@@ -292,8 +391,11 @@ def load_multiclass_mask(
         # Identify new activations: pixels that are active now but were not previously.
         new_activation = current_binary & (~prev_binary)
 
-        # Label these new pixels with the current iteration index.
-        multiclass_mask[new_activation] = it
+        # Reverse the label: iteration 0 gets the highest value (iteration), iteration
+        # 'iteration' gets 1.
+        reversed_label = iteration - it + 1
+        multiclass_mask[new_activation] = reversed_label
+        # multiclass_mask[new_activation] = it
 
         # Update the previous binary mask.
         prev_binary = current_binary

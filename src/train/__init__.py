@@ -1,6 +1,6 @@
-from . import helpers, modes
+from . import helper, mode
 
 __all__ = [
-    "helpers",
-    "modes",
+    "helper",
+    "mode",
 ]
