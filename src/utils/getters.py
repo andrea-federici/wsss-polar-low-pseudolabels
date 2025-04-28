@@ -22,13 +22,34 @@ def torch_model_getter(model_name: str, num_classes: int = 2) -> nn.Module:
 
 
 # TODO: add support for max_translations
+# TODO: fix checkpoint loading for other lightning models
 def lightning_model_getter(
     cfg: DictConfig,
     torch_model: nn.Module,
     criterion: nn.Module,
     optimizer_config: dict,
+    stage: str = "train",
+    checkpoint_path: str = None,
     **kwargs,
 ) -> LightningModule:
+
+    assert stage in [
+        "train",
+        "predict",
+    ], f"Invalid stage: {stage}. Available options: ['train', 'predict']"
+
+    if stage == "train":
+        if checkpoint_path is not None:
+            print(
+                "Checkpoint path is provided, but it will be ignored since stage is "
+                "set to 'train'."
+            )
+
+    if stage == "predict":
+        assert (
+            checkpoint_path is not None
+        ), "Checkpoint path is required for prediction."
+
     lightning_model_name = cfg.mode.lightning_model
     if lightning_model_name == "base":
         return BaseModel(torch_model, criterion, optimizer_config)
@@ -41,14 +62,25 @@ def lightning_model_getter(
                 "'adversarial_erasing' model."
             )
         transforms_config = kwargs.get("transforms_config", None)
-        return AdversarialErasingModel(
-            model=torch_model,
-            criterion=criterion,
-            optimizer_config=optimizer_config,
-            current_iteration=iteration,
-            train_config=cfg.mode.train_config,
-            transforms_config=transforms_config,
-        )
+        if stage == "train":
+            return AdversarialErasingModel(
+                model=torch_model,
+                criterion=criterion,
+                optimizer_config=optimizer_config,
+                current_iteration=iteration,
+                train_config=cfg.mode.train_config,
+                transforms_config=transforms_config,
+            )
+        elif stage == "predict":
+            return AdversarialErasingModel.load_from_checkpoint(
+                checkpoint_path=checkpoint_path,
+                model=torch_model,
+                criterion=criterion,
+                optimizer_config=optimizer_config,
+                current_iteration=iteration,
+                train_config=cfg.mode.train_config,
+                transforms_config=transforms_config,
+            )
     else:
         raise ValueError(
             f"Invalid lightning model name: {lightning_model_name}. "

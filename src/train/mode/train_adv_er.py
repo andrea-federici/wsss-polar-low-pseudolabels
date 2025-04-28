@@ -28,7 +28,6 @@ def run(cfg: DictConfig) -> None:
         )
 
         logger.experiment["iteration"] = iteration
-
         logger.experiment[f"start_time"] = datetime.now().isoformat()
 
         heatmaps_config = cfg.mode.train_config.heatmaps

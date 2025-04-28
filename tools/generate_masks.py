@@ -153,6 +153,6 @@ if __name__ == "__main__":
     threshold = 0.75
     iteration = 5
 
-    generate_multilabel_masks_from_heatmaps(
+    generate_masks_from_heatmaps(
         base_heatmaps_dir, mask_dir, mask_size, threshold, iteration
     )

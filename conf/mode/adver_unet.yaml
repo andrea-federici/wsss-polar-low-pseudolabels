@@ -1,0 +1,18 @@
+name: adver_unet
+dataset_type: adversarial_erasing
+train_data_transform: val
+lightning_model: adver_unet
+
+## SPECIFIC TO ADVERSARIAL ERASING ##
+train_config:
+  max_iterations: 20
+  heatmaps:
+    base_directory: out/heatmaps
+    threshold: 0.75
+    fill_color: 0
+  aug:
+    translate_frac: 0.35  # Same for both x and y
+    degrees: 20  # Rotation in degrees
+    scale: 0.1  # If set to 0.1, the scale will be [0.9, 1.1]
+    horizontal_flip: true
+    vertical_flip: true

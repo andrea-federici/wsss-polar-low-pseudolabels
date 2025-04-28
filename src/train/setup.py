@@ -135,3 +135,52 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
         trainer=trainer,
         logger=neptune_logger,
     )
+
+
+def get_predict_setup(
+    checkpoint_path: str, cfg: DictConfig, **kwargs
+) -> LightningModule:
+
+    ## TORCH MODEL ##
+    torch_model = torch_model_getter(cfg.torch_model, cfg.num_classes)
+
+    ## LOSS AND OPTIMIZER ##
+    criterion = criterion_getter(cfg.criterion)
+    optimizer = optimizer_getter(cfg.optimizer, torch_model, cfg.learning_rate)
+
+    ## OPTIMIZER CONFIGURATION ##
+    lr_scheduler = lr_scheduler_getter(
+        cfg.lr_scheduler.name,
+        optimizer,
+        cfg.lr_scheduler.mode,
+        cfg.lr_scheduler.patience,
+        cfg.lr_scheduler.factor,
+    )
+    optimizer_config = {
+        "optimizer": optimizer,
+        "lr_scheduler": {
+            "scheduler": lr_scheduler,
+            "monitor": cfg.lr_scheduler.monitor,
+            "interval": "epoch",
+        },
+    }
+
+    ## LIGHTNING MODEL ##
+    if cfg.mode.name == "adversarial_erasing":
+        lightning_model = lightning_model_getter(
+            cfg,
+            torch_model,
+            criterion,
+            optimizer_config,
+            iteration=0,
+            transforms_config=cfg.transforms,
+            stage="predict",
+            checkpoint_path=checkpoint_path,
+        )
+    else:
+        # Not implemented yet
+        raise NotImplementedError(
+            "Predict setup is not implemented for this model type."
+        )
+
+    return lightning_model

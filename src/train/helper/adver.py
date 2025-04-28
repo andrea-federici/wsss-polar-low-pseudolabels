@@ -403,66 +403,37 @@ def load_multiclass_mask(
     return multiclass_mask
 
 
-### ----- TESTING ----- ###
+## ----- TESTING ----- ###
 
-# import torch.nn.functional as F
-
-
-# def smooth_heatmap(heatmap, target_size=(500, 500)):
-#     """
-#     Resizes and smooths a heatmap using bilinear interpolation.
-
-#     Parameters:
-#       heatmap (torch.Tensor): Input heatmap (multi-label or continuous).
-#       target_size (tuple): Desired output size (height, width).
-
-#     Returns:
-#       torch.Tensor: The resized and smoothed heatmap.
-#     """
-#     # Add batch and channel dimensions: [B, C, H, W]
-#     heatmap = heatmap.unsqueeze(0).unsqueeze(0).float()
-
-#     # Use bilinear interpolation which naturally smooths out the values.
-#     smoothed = F.interpolate(
-#         heatmap, size=target_size, mode="bilinear", align_corners=False
-#     )
-
-#     # Remove batch and channel dimensions.
-#     return smoothed.squeeze(0).squeeze(0)
+import torch.nn.functional as F
 
 
-# if __name__ == "__main__":
-#     import cv2
-#     import numpy as np
-#     import matplotlib.pyplot as plt
+if __name__ == "__main__":
+    import cv2
+    import numpy as np
+    import matplotlib.pyplot as plt
 
-#     base_heatmaps_dir = "out/heatmaps"
-#     img_path = "1d2200_20181006T085600_20181006T085715_mos_rgb.png.png"
-#     label = 1
-#     # iteration = 10
-#     threshold = 0.75  # Must be the same as the one used in training
+    base_heatmaps_dir = "out/heatmaps"
+    img_path = "1d2200_20181006T085600_20181006T085715_mos_rgb.png"
+    label = 1
+    # iteration = 10
+    threshold = 0.75  # Must be the same as the one used in training
 
-#     for it in range(1, 10):
-#         multilabel_mask = load_multiclass_mask(
-#             base_heatmaps_dir, img_path, label, it, threshold
-#         )
+    for it in range(0, 9):
+        multilabel_mask = load_multiclass_mask(
+            base_heatmaps_dir, img_path, label, it, threshold
+        )
 
-#         # multilabel_mask = cv2.resize(
-#         #     multilabel_mask.numpy(),
-#         #     (500, 500),  # cv2.resize takes (width, height)
-#         #     interpolation=cv2.INTER_NEAREST,
-#         # )
+        # multilabel_mask = cv2.resize(
+        #     multilabel_mask.numpy(),
+        #     (500, 500),  # cv2.resize takes (width, height)
+        #     interpolation=cv2.INTER_NEAREST,
+        # )
 
-#         multilabel_mask = smooth_heatmap(multilabel_mask, target_size=(500, 500))
-
-#         multilabel_mask = cv2.GaussianBlur(
-#             multilabel_mask.numpy().astype(np.float32), (11, 11), 0
-#         )
-
-#         # Plot the multi-label mask
-#         plt.figure(figsize=(8, 8))
-#         plt.imshow(multilabel_mask, cmap="viridis")
-#         plt.colorbar()
-#         plt.title("Multi-label mask")
-#         plt.savefig(f"multilabel_mask_{it}.png")
-#         plt.show()
+        # Plot the multi-label mask
+        plt.figure(figsize=(8, 8))
+        plt.imshow(multilabel_mask, cmap="viridis")
+        plt.colorbar()
+        plt.title("Multi-label mask")
+        plt.savefig(f"multilabel_mask_{it}.png")
+        plt.show()
