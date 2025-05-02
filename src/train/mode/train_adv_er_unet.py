@@ -6,12 +6,10 @@ from torch.utils.data import DataLoader
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-from src.attributions.gradcam import GradCAM
 from src.train.setup import get_train_setup
 from src.train.helper import adversarial_erase, load_accumulated_heatmap
 from src.data.custom_datasets import ImageFilenameDataset
 from src.data.transforms import get_transform
-from src.utils.neptune_utils import NeptuneLogger
 
 
 def run(cfg: DictConfig) -> None:
@@ -47,7 +45,6 @@ def run(cfg: DictConfig) -> None:
             cfg.num_workers,
             heatmaps_config.threshold,
             heatmaps_config.fill_color,
-            logger=logger,
         )
 
         logger.experiment[f"end_time"] = datetime.now().isoformat()
@@ -56,7 +53,7 @@ def run(cfg: DictConfig) -> None:
 
 
 def generate_and_save_heatmaps(
-    model,
+    lit_classifier,
     dataset,
     base_heatmaps_dir,
     current_iteration,
@@ -64,18 +61,109 @@ def generate_and_save_heatmaps(
     num_workers,
     threshold,
     fill_color,
-    logger: NeptuneLogger,
 ):
-    model.eval()
-    device = next(model.parameters()).device  # Get device from model
+    classifier = lit_classifier.model
 
-    # TODO: can we use the create_data_loaders function with the only_positives flag?
+    # load weights / checkpoint into classifier ...
+    classifier.eval()
+    for p in classifier.parameters():
+        p.requires_grad = False
+
+    image_size = (512, 512)
+
+    mean = [0.2872, 0.2872, 0.4595]
+    std = [0.1806, 0.1806, 0.2621]
+
+    # dataset + dataloader
+    from torchvision import transforms
+
+    transform_list = [
+        transforms.RandomAffine(
+            degrees=30,
+            translate=(0.3, 0.3),
+            scale=(0.9, 1.1),
+            fill=0,
+        ),
+        transforms.Resize(image_size),
+    ]
+
+    # Random flips
+    transform_list.append(transforms.RandomHorizontalFlip(p=0.5))
+
+    transform_list.append(transforms.RandomVerticalFlip(p=0.5))
+
+    transform_list.extend(
+        [transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)]
+    )
+
+    transform_train = transforms.Compose(transform_list)
+
+    transform_val = transforms.Compose(
+        [
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std),
+        ]
+    )
+
+    from src.data.data_loading import create_data_loaders
+
+    train_loader, val_loader, _ = create_data_loaders(
+        "data",
+        batch_size=4,
+        num_workers=8,
+        transform_train=transform_train,
+        transform_val=transform_val,
+        only_positives=True,
+    )
+
+    # init LightningModule
+    from src.models.lightning.mask_head import MaskerLightning
+
+    mask_trainer = MaskerLightning(classifier=classifier, mask_threshold=0.5)
+
+    # Callbacks
+    # Early stopping
+    from pytorch_lightning.callbacks import EarlyStopping
+
+    early_stop = EarlyStopping(
+        monitor="val/loss",
+        patience=5,
+        verbose=True,
+        mode="min",
+    )
+
+    # Learning rate monitor
+    from pytorch_lightning.callbacks import LearningRateMonitor
+
+    lr_monitor = LearningRateMonitor(logging_interval="step")
+
+    callbacks = [early_stop, lr_monitor]
+    callbacks = [lr_monitor]
+
+    # fit
+    from pytorch_lightning import Trainer
+
+    trainer = Trainer(
+        max_epochs=20,
+        accelerator="gpu",
+        devices=1,
+        callbacks=callbacks,
+        enable_checkpointing=True,
+        log_every_n_steps=1,
+        enable_progress_bar=True,
+    )
+    trainer.fit(mask_trainer, train_loader, val_loader)
+
+    classifier.eval()
+    device = next(classifier.parameters()).device  # Get device from model
+
     dataloader = DataLoader(
         dataset, batch_size=32, shuffle=False, num_workers=num_workers
     )
+    print(f"Num batches: {len(dataloader)}")
+    print(f"Num samples: {len(dataset)}")
     os.makedirs(save_dir, exist_ok=True)
-
-    gradcam = GradCAM(model.model, device)
 
     with torch.no_grad():
         # TODO: remove enumerate and batch_idx
@@ -99,16 +187,16 @@ def generate_and_save_heatmaps(
                             img, accumulated_heatmap, threshold, fill_color
                         )
 
-                    heatmap = gradcam.generate_heatmap(img, target_class=1)
+                    heatmap = mask_trainer(img)
 
-                    img_overlay = gradcam.overlay_heatmap(img, heatmap)
+                    heatmap = heatmap.squeeze(0).squeeze(0)
+                    # print(f"Heatmap shape: {heatmap.shape}")
 
-                    # TODO: make this better
-                    if batch_idx == 40 or batch_idx == 41:
-                        logger.log_tensor_img(img_overlay, name=f"heatmap_{img_path}")
+                    heatmap_erase = 1 - heatmap
 
                     # Save heatmap as a .pt file
                     heatmap_filename = os.path.join(
-                        save_dir, os.path.basename(img_path) + ".pt"
+                        save_dir,
+                        os.path.splitext(os.path.basename(img_path))[0] + ".pt",
                     )
-                    torch.save(heatmap, heatmap_filename)
+                    torch.save(heatmap_erase, heatmap_filename)

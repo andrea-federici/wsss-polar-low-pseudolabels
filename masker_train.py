@@ -100,10 +100,11 @@ train_loader, val_loader, _ = create_data_loaders(
     num_workers=8,
     transform_train=transform_train,
     transform_val=transform_val,
+    only_positives=True,
 )
 
 # init LightningModule
-mask_trainer = MaskerLightning(classifier=classifier)
+mask_trainer = MaskerLightning(classifier=classifier, mask_threshold=0.5)
 
 # Callbacks
 # Early stopping

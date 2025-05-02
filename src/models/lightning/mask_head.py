@@ -69,9 +69,8 @@ class MaskerLightning(pl.LightningModule):
     def __init__(
         self,
         classifier: nn.Module,
-        lr: float = 1e-4,
-        lambda_l1: float = 1.0,
-        lambda_tv: float = 1.0,
+        mask_threshold: float,
+        lr: float = 5e-4,
     ):
         """
         LightningModule to train a single-channel mask via an SMP U-Net decoder.
@@ -133,114 +132,95 @@ class MaskerLightning(pl.LightningModule):
         for name, p in self.masker.encoder.named_parameters():
             p.requires_grad = False
 
+        self.mask_threshold = mask_threshold
         self.lr = lr
-        self.lambda_l1 = lambda_l1
-        self.lambda_tv = lambda_tv
+        self.lambda_conf = 1.0
+        self.lambda_l1 = 1.6
+        self.lambda_tv = 2.0
+        self.lambda_compact = 2.0
+        self.lambda_spread = 4.0
 
     def spread_loss(self, mask: torch.Tensor) -> torch.Tensor:
-        """
-        mask: B×1×H×W continuous in [0,1]
-        returns: scalar spread loss
-        """
-        erase = 1.0 - mask
+        # Invert the mask
+        erase = 1.0 - mask  # Now 0=keep, 1=erase
 
-        B, _, H, W = erase.shape
+        _, _, H, W = erase.shape
         device = erase.device
 
-        # coordinate grids
+        # Build coordinate grids
+        # ys has shape (1,1,H,1): value at [0,0,i,0] = i
         ys = torch.arange(H, device=device).view(1, 1, H, 1).float()
+        # xs has shape (1,1,1,W): value at [0,0,0,j] = j
         xs = torch.arange(W, device=device).view(1, 1, 1, W).float()
 
-        # compute area (mass) per image
+        # Compute area of erasure per image
         area = erase.sum(dim=[2, 3], keepdim=True) + 1e-6  # B×1×1×1
 
-        # compute centroid coords
+        # Compute centroid coords
         mu_y = (ys * erase).sum(dim=[2, 3], keepdim=True) / area
         mu_x = (xs * erase).sum(dim=[2, 3], keepdim=True) / area
 
-        # squared distance from centroid, weighted by mask
+        # Per-pixel squared distance from centroid
         var = ((ys - mu_y) ** 2 + (xs - mu_x) ** 2) * erase
 
-        # average per‐image, then across batch
-        spread_per_image = var.sum(dim=[2, 3]) / area.squeeze()  # B
-        return spread_per_image.mean()  # scalar
+        # Sum those distances and normalize by area
+        spread_per_image = var.sum(dim=[2, 3]) / area.squeeze()  # shape: (B,)
+
+        return spread_per_image.mean()  # Average across batch
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        mask_cont = self.masker(x)
-        mask_hard = (mask_cont > 0.5).float()
-        # ST‑estimator: forward uses mask_hard, backward uses mask_cont
-        mask = mask_hard.detach() - mask_cont.detach() + mask_cont
-        return mask
+        return self.masker(x)
+        # mask_cont = self.masker(x)
+        # mask_hard = (mask_cont > 0.5).float()
+        # # ST‑estimator: forward uses mask_hard, backward uses mask_cont
+        # mask = mask_hard.detach() - mask_cont.detach() + mask_cont
+        # return mask
 
     def training_step(self, batch, batch_idx):
-        x, y = batch  # x: B×3×H×W, y: B ints
+        x, y = batch  # x: input images (B×3×H×W), y: ground-truth class labels (B,)
 
-        # 0) keep only positives
-        pos_idx = (y == 1).nonzero(as_tuple=True)[0]
-        if pos_idx.numel() == 0:
-            # no positives this batch → nothing to train on
-            return None
+        # Continous mask from the network
+        mask_cont = self(x)
 
-        x = x[pos_idx]  # P×3×H×W
-        y = y[pos_idx]  # P
+        # Hard threshold
+        mask_hard = (mask_cont > self.mask_threshold).float()
 
-        mask = self(x)
+        # Straight-through trick
+        mask = mask_hard.detach() - mask_cont.detach() + mask_cont
 
-        # 1) perturb input by masking out regions
+        # Perturb using hard mask
         # TODO: use dataset mean/std to normalize x
         bkg = x.mean(dim=[2, 3], keepdim=True)  # B×3×1×1
         x_pert = mask * x + (1.0 - mask) * bkg
 
-        # 2) run classifier on perturbed image
-        # print("TRAIN")
+        # Run classifier on perturbed image
         logits = self.classifier(x_pert)
-        # print(f"Logits: {logits}")
         probs = F.softmax(logits, dim=1)
-        # print(f"Probs: {probs}")
-        # average confidence of the true class
-        conf = probs[torch.arange(len(y)), y].mean() * 2.0
-        # print(f"Conf: {conf}")
+        conf = probs[:, 1].mean()  # average positive-class confidence
 
-        # 3) regularizers on mask
+        # Regularizers
         l1 = torch.mean(1.0 - mask)  # encourage mask ≈1 (minimal erasure)
-        tv = total_variation(mask)  # encourage smoothness
-
-        spread = self.spread_loss(mask) * 1e-5  # encourage compactness
-
-        # 4) total loss: push conf up in loss (so training drives conf↓)
+        tv = total_variation(mask)
+        spread = self.spread_loss(mask)
         area = torch.sum(mask) + 1e-6
-        compact = (
-            tv / area
-        ) * 1e6  # encourage compactness # TODO: change 1e6 to number of pixel (width * height ?)
-        loss = (
-            conf * 1.0
-            + self.lambda_l1 * l1
-            + self.lambda_tv * tv
-            + compact * 1.0
-            + spread * 1.0
-        )
+        compact = tv / area
 
-        # logging
-        self.log("train/loss", loss, prog_bar=True)
-        self.log("train/conf", conf, prog_bar=True)
-        self.log("train/l1", l1)
-        self.log("train/tv", tv)
-        self.log("train/compact", compact)
-        self.log("train/spread", spread)
-        self.log("train/area", area)
+        loss_terms = {
+            "conf": self.lambda_conf * conf,
+            "l1": self.lambda_l1 * l1,
+            "tv": self.lambda_tv * tv,
+            "compact": self.lambda_compact * (compact * 1e6),
+            "spread": self.lambda_spread * (spread * 1e-5),
+        }
+        loss = sum(loss_terms.values())
+        self.log_dict({f"train/{k}": v for k, v in loss_terms.items()}, prog_bar=True)
 
         # 6) Save debug images every 20 batches
-        if batch_idx % 20 == 0 and self.global_rank == 0:
+        if batch_idx % 5 == 0 and self.global_rank == 0:
             print(f"Epoch {self.current_epoch}, batch {batch_idx}")
             print("Loss components:")
-            print(f"  loss: {loss:.4f}")
-            print(f"  Probs: {probs}")
-            print(f"  conf: {conf:.4f}")
-            print(f"  l1: {l1:.4f}")
-            print(f"  tv: {tv:.4f}")
-            print(f"  compact: {compact:.4f}")
-            print(f"  spread: {spread:.4f}")
-            print(f"  area: {area:.4f}")
+            for k, v in loss_terms.items():
+                print(f"  {k}: {v:.4f}")
 
             save_dir = "out/debug_images"
             os.makedirs(save_dir, exist_ok=True)

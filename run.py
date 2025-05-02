@@ -9,6 +9,7 @@ from src.train.mode import (
     train_single,
     # train_optuna,
     train_adv_er,
+    train_adv_er_unet,
     # finetune_max_tr
 )
 
@@ -32,6 +33,8 @@ def run(cfg: DictConfig) -> None:
     #     train_optuna.run(cfg)
     elif mode == "adversarial_erasing":
         train_adv_er.run(cfg)
+    elif mode == "adver_unet":
+        train_adv_er_unet.run(cfg)
     # elif mode == 'max_translations':
     #     finetune_max_tr.run(cfg)
     else:

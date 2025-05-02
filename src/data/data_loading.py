@@ -15,6 +15,8 @@ def create_data_loaders(
     transform_val: transforms.Compose,
     transform_test: transforms.Compose = None,
     dataset_type: str = "standard",
+    only_positives: bool = False,
+    positive_label: int = 1,
     **kwargs,
 ):
     assert dataset_type in ("standard", "max_translations", "adversarial_erasing"), (
@@ -54,6 +56,17 @@ def create_data_loaders(
         data.data_utils.dataset_stratified_shuffle_split(train_val_data)
     )
 
+    # If we only want positives, filter out any index whose label is not positive
+    if only_positives:
+        train_indices = [
+            i for i in train_indices if train_val_data.targets[i] == positive_label
+        ]
+        val_indices = [
+            i for i in val_indices if train_val_data.targets[i] == positive_label
+        ]
+
+        train_data = Subset(train_val_data, train_indices)
+
     # Validation data uses a different transform
     if dataset_type == "standard":
         val_data = Subset(
@@ -74,17 +87,25 @@ def create_data_loaders(
             val_indices,
         )
 
-    # Calculate class weights
-    class_weights = data.data_utils.dataset_calculate_class_weights(
-        train_val_data, train_indices
-    )
+    if only_positives:
+        sampler = None
+        shuffle = True
+    else:
+        # Calculate class weights
+        class_weights = data.data_utils.dataset_calculate_class_weights(
+            train_val_data, train_indices
+        )
 
-    # Assign weights to each sample
-    sample_weights = [class_weights[train_val_data.targets[i]] for i in train_indices]
+        # Assign weights to each sample
+        sample_weights = [
+            class_weights[train_val_data.targets[i]] for i in train_indices
+        ]
 
-    sampler = WeightedRandomSampler(
-        weights=sample_weights, num_samples=len(sample_weights), replacement=True
-    )
+        sampler = WeightedRandomSampler(
+            weights=sample_weights, num_samples=len(sample_weights), replacement=True
+        )
+
+        shuffle = False
 
     def collate_fn(batch):
         if dataset_type == "standard":
@@ -102,6 +123,7 @@ def create_data_loaders(
         train_data,
         batch_size=batch_size,
         sampler=sampler,
+        shuffle=shuffle,
         num_workers=num_workers,
         collate_fn=collate_fn,
     )

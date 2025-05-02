@@ -1,7 +1,7 @@
 name: adver_unet
 dataset_type: adversarial_erasing
 train_data_transform: val
-lightning_model: adver_unet
+lightning_model: adversarial_erasing
 
 ## SPECIFIC TO ADVERSARIAL ERASING ##
 train_config:

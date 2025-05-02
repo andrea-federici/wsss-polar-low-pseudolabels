@@ -69,7 +69,7 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
     }
 
     ## LIGHTNING MODEL ##
-    if cfg.mode.name == "adversarial_erasing":
+    if cfg.mode.lightning_model == "adversarial_erasing":
         print("iteration:", kwargs["iteration"])
         lightning_model = lightning_model_getter(
             cfg,
