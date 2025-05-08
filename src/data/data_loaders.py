@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader, Subset, WeightedRandomSampler
 from src import data
 
 
+# TODO: clean this up, especially part of shuffle_train
 def create_data_loaders(
     data_dir: str,
     batch_size: int,
@@ -17,6 +18,7 @@ def create_data_loaders(
     dataset_type: str = "standard",
     only_positives: bool = False,
     positive_label: int = 1,
+    shuffle_train: bool = True,
     **kwargs,
 ):
     assert dataset_type in ("standard", "max_translations", "adversarial_erasing"), (
@@ -53,7 +55,7 @@ def create_data_loaders(
 
     # Split training data while preserving class proportions
     train_data, train_indices, val_indices = (
-        data.data_utils.dataset_stratified_shuffle_split(train_val_data)
+        data.utils.dataset_stratified_shuffle_split(train_val_data)
     )
 
     # If we only want positives, filter out any index whose label is not positive
@@ -89,10 +91,14 @@ def create_data_loaders(
 
     if only_positives:
         sampler = None
-        shuffle = True
+        shuffle = shuffle_train
     else:
+        if not shuffle_train:
+            print(
+                "Warning: shuffle_train is set to False, but the training data is shuffled anyways because of the random sampler."
+            )
         # Calculate class weights
-        class_weights = data.data_utils.dataset_calculate_class_weights(
+        class_weights = data.utils.dataset_calculate_class_weights(
             train_val_data, train_indices
         )
 
@@ -105,7 +111,7 @@ def create_data_loaders(
             weights=sample_weights, num_samples=len(sample_weights), replacement=True
         )
 
-        shuffle = False
+        shuffle = None
 
     def collate_fn(batch):
         if dataset_type == "standard":

@@ -1,26 +1,25 @@
 import os
 
 import torch
-from torchvision.utils import make_grid, save_image
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from omegaconf import DictConfig
+from torchvision.utils import make_grid, save_image
 
 from src.data.image_processing import (
+    erase_region_using_heatmap,
     normalize_image_by_statistics,
     unnormalize_image_by_statistics,
 )
 from src.models.lightning import BaseModel
-from src.train.helper import (
-    adversarial_erase,
-    load_accumulated_heatmap,
-)
+from src.train.helper import load_accumulated
 
 
 class AdversarialErasingModel(BaseModel):
     def __init__(
         self,
         model: torch.nn.Module,
+        *,
         criterion: torch.nn.Module,
         optimizer_config: dict,
         current_iteration: int,
@@ -39,11 +38,11 @@ class AdversarialErasingModel(BaseModel):
         erased_images = []
         for img, label, img_path in zip(images, labels, img_paths):
             if self.current_iteration > 0:
-                accumulated_heatmap = load_accumulated_heatmap(
+                accumulated_heatmap = load_accumulated(
                     self.base_heatmaps_dir, img_path, label, self.current_iteration - 1
                 )
 
-                img = adversarial_erase(
+                img = erase_region_using_heatmap(
                     img.unsqueeze(0),
                     accumulated_heatmap,
                     threshold=self.train_config.heatmaps.threshold,
@@ -132,11 +131,11 @@ class AdversarialErasingModel(BaseModel):
         erased_images = []
         for img, label, img_path in zip(images, labels, img_paths):
             if self.current_iteration > 0:
-                accumulated_heatmap = load_accumulated_heatmap(
+                accumulated_heatmap = load_accumulated(
                     self.base_heatmaps_dir, img_path, label, self.current_iteration - 1
                 )
 
-                img = adversarial_erase(
+                img = erase_region_using_heatmap(
                     img.unsqueeze(0),
                     accumulated_heatmap,
                     threshold=self.train_config.heatmaps.threshold,

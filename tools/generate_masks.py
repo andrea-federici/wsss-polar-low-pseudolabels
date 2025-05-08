@@ -2,8 +2,8 @@ import os
 from typing import Tuple
 
 import cv2
-import torch
 import numpy as np
+import torch
 from tqdm import tqdm
 
 from src import train
@@ -48,7 +48,7 @@ def generate_masks_from_heatmaps(
         img_path = filename.replace(".pt", ".png")
         mask_path = os.path.join(mask_dir, filename.replace(".pt", ".png"))
 
-        heatmap = train.helper.load_accumulated_heatmap(
+        heatmap = train.helper.load_accumulated(
             base_heatmaps_dir, img_path, label=1, iteration=iteration
         )
 
@@ -104,7 +104,7 @@ def generate_multilabel_masks_from_heatmaps(
         mask_path = os.path.join(mask_dir, filename.replace(".pt", ".png"))
 
         # Generate the multi-label mask using accumulated heatmaps.
-        multi_label_mask = train.helper.load_multiclass_mask(
+        multi_label_mask = train.helper.generate_multiclass_mask(
             base_heatmaps_dir,
             img_path,
             label=1,

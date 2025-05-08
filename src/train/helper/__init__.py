@@ -1,7 +1,8 @@
-from .adver import adversarial_erase, load_accumulated_heatmap, load_multiclass_mask
+from ...data.heatmaps import generate_multiclass_mask, load_accumulated
+from ...data.image_processing import erase_region_using_heatmap
 
 __all__ = [
-    "adversarial_erase",
-    "load_accumulated_heatmap",
-    "load_multiclass_mask",
+    "erase_region_using_heatmap",
+    "load_accumulated",
+    "generate_multiclass_mask",
 ]

@@ -2,14 +2,15 @@ import os
 from datetime import datetime
 
 import torch
-from torch.utils.data import DataLoader
 from omegaconf import DictConfig
+from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from src.train.setup import get_train_setup
-from src.train.helper import adversarial_erase, load_accumulated_heatmap
+from src.data.augmentation import get_transform
 from src.data.custom_datasets import ImageFilenameDataset
-from src.data.transforms import get_transform
+from src.data.image_processing import erase_region_using_heatmap
+from src.train.helper import load_accumulated
+from src.train.setup import get_train_setup
 
 
 def run(cfg: DictConfig) -> None:
@@ -106,7 +107,7 @@ def generate_and_save_heatmaps(
         ]
     )
 
-    from src.data.data_loading import create_data_loaders
+    from src.data.data_loaders import create_data_loaders
 
     train_loader, val_loader, _ = create_data_loaders(
         "data",
@@ -179,11 +180,11 @@ def generate_and_save_heatmaps(
                     img = image.unsqueeze(0)
 
                     if current_iteration > 0:
-                        accumulated_heatmap = load_accumulated_heatmap(
+                        accumulated_heatmap = load_accumulated(
                             base_heatmaps_dir, img_path, label, current_iteration - 1
                         )
 
-                        img = adversarial_erase(
+                        img = erase_region_using_heatmap(
                             img, accumulated_heatmap, threshold, fill_color
                         )
 

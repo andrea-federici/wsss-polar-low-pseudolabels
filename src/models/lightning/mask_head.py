@@ -25,6 +25,38 @@ def minmax_norm(tensor):
     return (tensor - mins) / (maxs - mins + 1e-8)
 
 
+def connectivity_loss(mask: torch.Tensor, k: int = 3) -> torch.Tensor:
+    """
+    mask: B×1×H×W in [0,1], where 1=erase region
+    k: window size (odd), e.g. 3 or 5
+    """
+    # a k×k box filter
+    weight = torch.ones(1, 1, k, k, device=mask.device) / (k * k)
+    # each pixel’s local-average of mask
+    local_avg = F.conv2d(mask, weight, padding=k // 2)
+    # penalize pixels with mask=1 but low local support
+    # (1 - local_avg) is near 1 if the neighborhood is empty
+    # multiply by mask so only “erased” pixels get penalized
+    loss = ((1 - local_avg) * mask).mean()
+    return loss
+
+
+def budget_loss(erase: torch.Tensor, p: float) -> torch.Tensor:
+    """
+    erase: B×1×H×W ∈ [0,1], where 1 means pixel is erased
+    p: max fraction of pixels you’re allowed to erase (0<p<1)
+    """
+    B, _, H, W = erase.shape
+    # total erase‐mass per image
+    erase_mass = erase.view(B, -1).sum(dim=1)  # (B,)
+    # budget in pixels
+    max_mass = p * (H * W)
+    # hinge: only positive when erase_mass > max_mass
+    violation = torch.clamp(erase_mass - max_mass, min=0.0)
+    # average over batch
+    return violation.mean() / (H * W)  # normalize if you like
+
+
 def clean_mask(
     mask: np.ndarray, min_size: int = 100, closing_radius: int = 5
 ) -> np.ndarray:
@@ -70,7 +102,7 @@ class MaskerLightning(pl.LightningModule):
         self,
         classifier: nn.Module,
         mask_threshold: float,
-        lr: float = 5e-4,
+        lr: float = 5e-3,
     ):
         """
         LightningModule to train a single-channel mask via an SMP U-Net decoder.
@@ -89,26 +121,6 @@ class MaskerLightning(pl.LightningModule):
         for p in self.classifier.parameters():
             p.requires_grad = False
 
-        # # 2) Define a tiny mask head on the ORIGINAL INPUT (not Unet)
-        # # ~5K parameters total
-        # self.masker = nn.Sequential(
-        #     # 3→64 channels
-        #     nn.Conv2d(3, 64, kernel_size=3, padding=1),
-        #     nn.BatchNorm2d(64),
-        #     nn.ReLU(inplace=True),
-        #     # 64→64
-        #     nn.Conv2d(64, 64, kernel_size=3, padding=1),
-        #     nn.BatchNorm2d(64),
-        #     nn.ReLU(inplace=True),
-        #     # 64→32
-        #     nn.Conv2d(64, 32, kernel_size=3, padding=1),
-        #     nn.BatchNorm2d(32),
-        #     nn.ReLU(inplace=True),
-        #     # 32→1 mask
-        #     nn.Conv2d(32, 1, kernel_size=1),
-        #     nn.Sigmoid(),
-        # )
-
         # 2) SMP Unet: encoder frozen, train decoder+head only
         self.masker = smp.Unet(
             encoder_name="xception",
@@ -118,27 +130,17 @@ class MaskerLightning(pl.LightningModule):
             activation="sigmoid",
         )
 
-        # # 3) Copy your classifier’s Xception encoder weights into the Unet encoder
-        # #    Assume your classifier has .feature_extractor which is the timm Xception backbone
-        # #    We load only the matching keys and then freeze.
-        # enc_sd = self.classifier.feature_extractor.state_dict()
-        # masker_sd = self.masker.encoder.state_dict()
-        # # keep only those parameters that exist in both
-        # shared = {k: v for k, v in enc_sd.items() if k in masker_sd}
-        # # update the masker encoder’s state dict
-        # masker_sd.update(shared)
-        # self.masker.encoder.load_state_dict(masker_sd)
-
         for name, p in self.masker.encoder.named_parameters():
             p.requires_grad = False
 
         self.mask_threshold = mask_threshold
         self.lr = lr
         self.lambda_conf = 1.0
-        self.lambda_l1 = 1.6
-        self.lambda_tv = 2.0
-        self.lambda_compact = 2.0
-        self.lambda_spread = 4.0
+        self.lambda_l1 = 0.0
+        self.lambda_tv = 1.0
+        self.lambda_compact = 1.0
+        self.lambda_spread = 1.0
+        self.lambda_budget = 1.4
 
     def spread_loss(self, mask: torch.Tensor) -> torch.Tensor:
         # Invert the mask
@@ -205,12 +207,15 @@ class MaskerLightning(pl.LightningModule):
         area = torch.sum(mask) + 1e-6
         compact = tv / area
 
+        budget_l = budget_loss(1 - mask, p=0.1)
+
         loss_terms = {
             "conf": self.lambda_conf * conf,
             "l1": self.lambda_l1 * l1,
             "tv": self.lambda_tv * tv,
             "compact": self.lambda_compact * (compact * 1e6),
             "spread": self.lambda_spread * (spread * 1e-5),
+            "budget": self.lambda_budget * budget_l,
         }
         loss = sum(loss_terms.values())
         self.log_dict({f"train/{k}": v for k, v in loss_terms.items()}, prog_bar=True)
@@ -238,7 +243,9 @@ class MaskerLightning(pl.LightningModule):
                 mask[:num], nrow=4, normalize=True
             )  # mask already [0,1]
 
-            masks_np = (mask[:num, 0].detach().cpu().numpy() > 0.5).astype(np.uint8)
+            masks_np = (
+                mask[:num, 0].detach().cpu().numpy() > self.mask_threshold
+            ).astype(np.uint8)
             cleaned_list = []
             for m in masks_np:
                 cm = clean_mask(
@@ -327,8 +334,12 @@ class MaskerLightning(pl.LightningModule):
 
     def configure_optimizers(self):
         # only the masker parameters (decoder+head) are trainable
-        return torch.optim.AdamW(
+        return torch.optim.Adam(
             filter(lambda p: p.requires_grad, self.masker.parameters()),
             lr=self.lr,
-            weight_decay=1e-4,  # L2 penalty on all decoder weights
         )
+        # return torch.optim.AdamW(
+        #     filter(lambda p: p.requires_grad, self.masker.parameters()),
+        #     lr=self.lr,
+        #     weight_decay=1e-4,  # L2 penalty on all decoder weights
+        # )

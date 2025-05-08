@@ -1,13 +1,14 @@
+import hydra
 import torch
 import torch.nn.functional as F
 from dotenv import load_dotenv
-import hydra
 from omegaconf import DictConfig, OmegaConf
 from PIL import Image
-from torchvision.utils import save_image, make_grid
+from torchvision.utils import make_grid, save_image
 
-from src.data.transforms import get_transform
-from src.train.helper import adversarial_erase, load_accumulated_heatmap
+from src.data.augmentation import get_transform
+from src.data.image_processing import erase_region_using_heatmap
+from src.train.helper import load_accumulated
 from src.train.setup import get_predict_setup
 
 
@@ -34,9 +35,9 @@ def run(cfg: DictConfig) -> None:
     # Apply the transform to the image
     transformed_image = transform(image).to("cuda")
 
-    adv_img = adversarial_erase(
+    adv_img = erase_region_using_heatmap(
         transformed_image.unsqueeze(0),
-        load_accumulated_heatmap(
+        load_accumulated(
             "out/heatmaps",
             img_name=image_path,
             label=1,

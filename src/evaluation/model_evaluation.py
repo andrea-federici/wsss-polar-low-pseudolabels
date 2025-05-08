@@ -1,7 +1,12 @@
-from tqdm import tqdm
 import torch
+from tqdm import tqdm
 
-def evaluate_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoader, device: torch.device = 'cpu'):
+
+def evaluate_model(
+    model: torch.nn.Module,
+    dataloader: torch.utils.data.DataLoader,
+    device: torch.device = "cpu",
+):
     """
     Evaluates the given model on the provided dataloader.
 
@@ -21,7 +26,7 @@ def evaluate_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoad
 
     # Disable gradient computation
     with torch.no_grad():
-        for batch in tqdm(dataloader, desc='Evaluating model'):
+        for batch in tqdm(dataloader, desc="Evaluating model"):
             images, labels = batch
             images, labels = images.to(device), labels.to(device)
 
@@ -36,4 +41,3 @@ def evaluate_model(model: torch.nn.Module, dataloader: torch.utils.data.DataLoad
             all_labels.extend(labels.cpu().numpy())
 
     return all_preds, all_labels
-

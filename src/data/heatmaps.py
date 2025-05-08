@@ -2,110 +2,11 @@ import os
 import random
 
 import torch
-import torchvision.transforms.functional as T
 
-from src.utils.constants import ITERATION_FOLDER_PREFIX, HEATMAP_EXTENSION
-
-
-def adversarial_erase(
-    image: torch.Tensor, heatmap: torch.Tensor, threshold: float = 0.7, fill_color=0
-) -> torch.Tensor:
-    """
-    Removes (erases) regions in the image where the corresponding heatmap
-    values exceed a given threshold. The erased areas are replaced with a
-    specified fill color.
-
-    Args:
-        image (torch.Tensor):
-            A 4D tensor of shape (B, C, H, W) representing an image, where B
-            is the batch size, C is the number of channels, and (H, W) are
-            the spatial dimensions.
-        heatmap (torch.Tensor):
-            A 2D tensor of shape (h, w) representing the attention map, which
-            indicates which regions should be erased. The heatmap will be
-            resized to match (H, W) of the image.
-        threshold (float, optional):
-            A threshold value in the range [0, 1] that determines which
-            regions are erased. Pixels in the heatmap greater than this
-            threshold will be erased. Default is 0.7.
-        fill_color (int, float, or torch.Tensor, optional):
-            The color or value used to fill erased regions. If a scalar (int
-            or float), all erased regions will be filled with this value. If a
-            tensor, it must have shape (C,) to specify different colors per
-            channel. Default is 0.
-
-    Returns:
-        torch.Tensor:
-            A new tensor of the same shape as `image` (B, C, H, W) with the
-            specified regions erased.
-
-    Raises:
-        AssertionError:
-            - If `image` is not a 4D tensor.
-            - If `heatmap` is not a 2D tensor.
-            - If `fill_color` is a tensor and does not match the image
-                channels.
-    """
-    assert image.dim() == 4, "Expected image to be a 4D tensor (B, C, H, W), "
-    "but got shape {image.shape}"
-    assert heatmap.dim() == 2, "Expected heatmap to be a 2D tensor (H, W)"
-
-    B, C, H, W = image.shape
-
-    heatmap = T.resize(
-        heatmap.unsqueeze(0),  # (1, h, w)
-        (H, W),
-        interpolation=T.InterpolationMode.BILINEAR,
-        antialias=True,
-    ).unsqueeze(
-        0
-    )  # Now (1, 1, H, W)
-
-    # Expand heatmap: (1, 1, H, W) -> (B, 1, H, W) to match batch
-    # size.
-    heatmap = heatmap.expand(B, 1, H, W)
-
-    # If fill_color is a scalar (int or float), convert it to a tensor
-    if isinstance(fill_color, (int, float)):
-        fill_color = torch.full(
-            (B, C, 1, 1), fill_color, dtype=image.dtype, device=image.device
-        )
-    else:
-        # Ensure fill_color has the correct number of channels (C)
-        assert (
-            fill_color.shape[0] == C
-        ), "fill_color should match the number \
-            of channels of the image"
-        fill_color = fill_color.view(1, C, 1, 1).expand(B, C, H, W)
-
-    # Create erase mask: (B, 1, H, W) -> broadcast to (B, C, H, W)
-    erase_mask = (heatmap > threshold).expand(B, C, H, W)
-
-    # Clone images to avoid modifying original tensors
-    erased_image = image.clone()
-
-    print(f"erased_image shape: {erased_image.shape}, dtype: {erased_image.dtype}")
-    print(f"erase_mask shape: {erase_mask.shape}, dtype: {erase_mask.dtype}")
-    print(f"fill_color shape: {fill_color.shape}, dtype: {fill_color.dtype}")
-    print(f"Expanded fill_color shape: {fill_color.expand_as(erased_image).shape}")
-
-    # Check how many elements are being accessed
-    print(f"erase_mask sum: {erase_mask.sum().item()} (number of pixels affected)")
-
-    if torch.isnan(erased_image).any():
-        print("NaN detected in erased_image!")
-    if torch.isnan(fill_color).any():
-        print("NaN detected in fill_color!")
-    if torch.isnan(erase_mask).any():
-        print("NaN detected in erase_mask!")
-
-    # Apply erasing by filling masked regions with the specified fill color
-    erased_image[erase_mask] = fill_color.expand_as(erased_image)[erase_mask]
-
-    return erased_image
+from src.utils.constants import HEATMAP_EXTENSION, ITERATION_FOLDER_PREFIX
 
 
-def load_heatmap(base_heatmaps_dir: str, iteration: int, img_name: str) -> torch.Tensor:
+def load(base_heatmaps_dir: str, iteration: int, img_name: str) -> torch.Tensor:
     """
     Load a heatmap tensor from the specified base heatmaps directory based on the
     provided iteration and image name.
@@ -158,7 +59,7 @@ def load_heatmap(base_heatmaps_dir: str, iteration: int, img_name: str) -> torch
     raise FileNotFoundError(f"Heatmap not found: {heatmap_path}. ")
 
 
-def random_heatmap(base_heatmaps_dir: str, iteration: int) -> torch.Tensor:
+def pick_random(base_heatmaps_dir: str, iteration: int) -> torch.Tensor:
     """
     Load a random heatmap tensor from the specified base heatmaps directory
     based on the provided iteration.
@@ -212,7 +113,7 @@ def random_heatmap(base_heatmaps_dir: str, iteration: int) -> torch.Tensor:
     return torch.load(random.choice(heatmap_files))
 
 
-def load_matching_heatmap(
+def load_matching(
     base_heatmaps_dir: str, iteration: int, img_prefix: str
 ) -> torch.Tensor:
     """
@@ -269,7 +170,7 @@ def load_matching_heatmap(
     return torch.load(first_match)
 
 
-def load_accumulated_heatmap(
+def load_accumulated(
     base_heatmaps_dir: str, img_name: str, label: int, iteration: int
 ) -> torch.Tensor:
     """
@@ -300,7 +201,7 @@ def load_accumulated_heatmap(
     assert label in [0, 1], "Label must be either 0 or 1 (negative or positive)"
 
     # Load a reference heatmap to get the proper shape.
-    reference_heatmap = random_heatmap(base_heatmaps_dir, 0)
+    reference_heatmap = pick_random(base_heatmaps_dir, 0)
 
     # Initialize an all-zeros tensor for heatmap accumulation.
     accumulated_heatmap = torch.zeros_like(reference_heatmap, dtype=torch.float32)
@@ -308,9 +209,9 @@ def load_accumulated_heatmap(
     # Iterate from 0 to iteration (inclusive) to accumulate heatmaps.
     for it in range(iteration + 1):
         if label == 1:  # Positive sample: use its own heatmap
-            heatmap = load_heatmap(base_heatmaps_dir, it, img_name)
+            heatmap = load(base_heatmaps_dir, it, img_name)
         else:  # Negative sample: load the matching heatmap
-            heatmap = load_matching_heatmap(base_heatmaps_dir, it, img_name[:6])
+            heatmap = load_matching(base_heatmaps_dir, it, img_name[:6])
 
         accumulated_heatmap += heatmap
 
@@ -320,7 +221,7 @@ def load_accumulated_heatmap(
     return accumulated_heatmap
 
 
-def load_multiclass_mask(
+def generate_multiclass_mask(
     base_heatmaps_dir: str,
     img_name: str,
     label: int,
@@ -365,7 +266,7 @@ def load_multiclass_mask(
     assert threshold >= 0 and threshold <= 1, "Threshold must be between 0 and 1"
 
     # Load a reference heatmap to get the proper shape.
-    reference_heatmap = random_heatmap(base_heatmaps_dir, 0)
+    reference_heatmap = pick_random(base_heatmaps_dir, 0)
     multiclass_mask = torch.zeros_like(reference_heatmap, dtype=torch.int32)
 
     # For accumulation, start with an all-zeros tensor.
@@ -377,9 +278,9 @@ def load_multiclass_mask(
     for it in range(iteration + 1):
         # Load the heatmap for the current iteration.
         if label == 1:
-            heatmap = load_heatmap(base_heatmaps_dir, it, img_name)
+            heatmap = load(base_heatmaps_dir, it, img_name)
         else:
-            heatmap = load_matching_heatmap(base_heatmaps_dir, it, img_name[:6])
+            heatmap = load_matching(base_heatmaps_dir, it, img_name[:6])
 
         # Accumulate and then clamp the result
         cumulative_heatmap += heatmap
@@ -401,39 +302,3 @@ def load_multiclass_mask(
         prev_binary = current_binary
 
     return multiclass_mask
-
-
-## ----- TESTING ----- ###
-
-import torch.nn.functional as F
-
-
-if __name__ == "__main__":
-    import cv2
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    base_heatmaps_dir = "out/heatmaps"
-    img_path = "1d2200_20181006T085600_20181006T085715_mos_rgb.png"
-    label = 1
-    # iteration = 10
-    threshold = 0.75  # Must be the same as the one used in training
-
-    for it in range(0, 9):
-        multilabel_mask = load_multiclass_mask(
-            base_heatmaps_dir, img_path, label, it, threshold
-        )
-
-        # multilabel_mask = cv2.resize(
-        #     multilabel_mask.numpy(),
-        #     (500, 500),  # cv2.resize takes (width, height)
-        #     interpolation=cv2.INTER_NEAREST,
-        # )
-
-        # Plot the multi-label mask
-        plt.figure(figsize=(8, 8))
-        plt.imshow(multilabel_mask, cmap="viridis")
-        plt.colorbar()
-        plt.title("Multi-label mask")
-        plt.savefig(f"multilabel_mask_{it}.png")
-        plt.show()

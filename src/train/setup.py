@@ -1,20 +1,20 @@
 from dataclasses import dataclass
 
-from torch.utils.data import DataLoader
-from lightning.pytorch import LightningModule, Trainer
 import lightning.pytorch.callbacks as cb
+from lightning.pytorch import LightningModule, Trainer
 from lightning.pytorch.loggers import NeptuneLogger
 from omegaconf import DictConfig
+from torch.utils.data import DataLoader
 
-from src.data.data_loading import create_data_loaders
-from src.data.transforms import get_transform
+from src.data.augmentation import get_transform
+from src.data.data_loaders import create_data_loaders
 from src.train.logger import create_neptune_logger
 from src.utils.getters import (
-    torch_model_getter,
-    lightning_model_getter,
     criterion_getter,
-    optimizer_getter,
+    lightning_model_getter,
     lr_scheduler_getter,
+    optimizer_getter,
+    torch_model_getter,
 )
 
 
