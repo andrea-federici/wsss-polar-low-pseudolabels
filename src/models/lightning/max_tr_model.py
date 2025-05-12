@@ -1,11 +1,11 @@
 import torch
 import torchvision.transforms.functional as F
 
-from src.models.lightning import BaseModel
 from src.data.image_processing import (
     normalize_image_by_statistics,
     unnormalize_image_by_statistics,
 )
+from src.models.lightning import BaseModel
 from src.train.helper.maxtr import calculate_max_transl_fractions
 
 
@@ -89,10 +89,10 @@ class MaxTranslationsModel(BaseModel):
         ]
         transformed_images = torch.stack(transformed_images)
 
-        loss = super().process_step("train", transformed_images, labels)
+        loss = super()._process_step("train", transformed_images, labels)
         return loss
 
     def validation_step(self, batch, batch_idx):
         images, labels, _ = batch
-        loss = super().process_step("val", images, labels)
+        loss = super()._process_step("val", images, labels)
         return loss

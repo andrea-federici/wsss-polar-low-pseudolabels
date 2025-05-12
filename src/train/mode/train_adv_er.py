@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from src.attributions.gradcam import GradCAM
-from src.data.augmentation import get_transform
+from src.data.augmentation import to_compose
 from src.data.custom_datasets import ImageFilenameDataset
 from src.data.image_processing import erase_region_using_heatmap
 from src.train.helper import load_accumulated
@@ -37,7 +37,7 @@ def run(cfg: DictConfig) -> None:
         # Generate new heatmaps for next iteration
         train_val_data = ImageFilenameDataset(
             os.path.join(cfg.data_dir, "train"),
-            transform=get_transform(cfg.transforms, "val"),
+            transform=to_compose(cfg.transforms, "val"),
         )
         generate_and_save_heatmaps(
             lightning_model,

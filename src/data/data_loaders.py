@@ -1,8 +1,8 @@
 import os
 
 import torch
-from torchvision import datasets, transforms
 from torch.utils.data import DataLoader, Subset, WeightedRandomSampler
+from torchvision import datasets, transforms
 
 from src import data
 
@@ -10,6 +10,7 @@ from src import data
 # TODO: clean this up, especially part of shuffle_train
 def create_data_loaders(
     data_dir: str,
+    *,
     batch_size: int,
     num_workers: int,
     transform_train: transforms.Compose,

@@ -24,7 +24,7 @@ transforms:
 # This augmentation is used only if train_data_transform is set to 'train' in the 
 # training mode
   augmentation:
-    translate_frac: [0.4, 0.4] # Using Optuna, the best value was found to be 0.4113, 
+    translate_frac: 0.4 # Using Optuna, the best value was found to be 0.4113, 
                                # (with degrees: 20, scale: [0.9, 1.1])
     degrees: 45
     scale: [0.9, 1.1]

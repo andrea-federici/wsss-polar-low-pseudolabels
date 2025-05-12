@@ -1,13 +1,13 @@
 import os
 
+import lightning.pytorch as pl
 import numpy as np
-from skimage import morphology, measure
+import segmentation_models_pytorch as smp
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from skimage import measure, morphology
 from torchvision.utils import make_grid, save_image
-import pytorch_lightning as pl
-import segmentation_models_pytorch as smp
 
 
 def total_variation(mask: torch.Tensor) -> torch.Tensor:
@@ -136,11 +136,11 @@ class MaskerLightning(pl.LightningModule):
         self.mask_threshold = mask_threshold
         self.lr = lr
         self.lambda_conf = 1.0
-        self.lambda_l1 = 0.0
+        self.lambda_l1 = 1.0
         self.lambda_tv = 1.0
         self.lambda_compact = 1.0
         self.lambda_spread = 1.0
-        self.lambda_budget = 1.4
+        self.lambda_budget = 0.0
 
     def spread_loss(self, mask: torch.Tensor) -> torch.Tensor:
         # Invert the mask
@@ -171,24 +171,16 @@ class MaskerLightning(pl.LightningModule):
         return spread_per_image.mean()  # Average across batch
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.masker(x)
-        # mask_cont = self.masker(x)
-        # mask_hard = (mask_cont > 0.5).float()
-        # # ST‑estimator: forward uses mask_hard, backward uses mask_cont
-        # mask = mask_hard.detach() - mask_cont.detach() + mask_cont
-        # return mask
+        mask_cont = self.masker(x)
+        mask_hard = (mask_cont > 0.5).float()
+        # ST‑estimator: forward uses mask_hard, backward uses mask_cont
+        mask = mask_hard.detach() - mask_cont.detach() + mask_cont
+        return mask
 
     def training_step(self, batch, batch_idx):
         x, y = batch  # x: input images (B×3×H×W), y: ground-truth class labels (B,)
 
-        # Continous mask from the network
-        mask_cont = self(x)
-
-        # Hard threshold
-        mask_hard = (mask_cont > self.mask_threshold).float()
-
-        # Straight-through trick
-        mask = mask_hard.detach() - mask_cont.detach() + mask_cont
+        mask = self(x)
 
         # Perturb using hard mask
         # TODO: use dataset mean/std to normalize x

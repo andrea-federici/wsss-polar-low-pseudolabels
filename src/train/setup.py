@@ -6,7 +6,7 @@ from lightning.pytorch.loggers import NeptuneLogger
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 
-from src.data.augmentation import get_transform
+from src.data.augmentation import to_aug_config, to_compose
 from src.data.data_loaders import create_data_loaders
 from src.train.logger import create_neptune_logger
 from src.utils.getters import (
@@ -38,12 +38,13 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
     torch_model = torch_model_getter(cfg.torch_model, cfg.num_classes)
 
     ## DATA LOADERS ##
+    aug_config = to_aug_config(cfg.transforms)
     train_loader, val_loader, _ = create_data_loaders(
         cfg.data_dir,
-        cfg.batch_size,
-        cfg.num_workers,
-        get_transform(cfg.transforms, cfg.mode.train_data_transform),
-        get_transform(cfg.transforms, "val"),
+        batch_size=cfg.batch_size,
+        num_workers=cfg.num_workers,
+        transform_train=to_compose(aug_config, cfg.mode.train_data_transform),
+        transform_val=to_compose(aug_config, "val"),
         dataset_type=cfg.mode.dataset_type,
     )
 
@@ -70,14 +71,15 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
 
     ## LIGHTNING MODEL ##
     if cfg.mode.lightning_model == "adversarial_erasing":
-        print("iteration:", kwargs["iteration"])
         lightning_model = lightning_model_getter(
             cfg,
             torch_model,
             criterion,
             optimizer_config,
+            base_heatmaps_dir=kwargs["base_heatmaps_dir"]
+            
             iteration=kwargs["iteration"],
-            transforms_config=cfg.transforms,
+            aug_config=aug_config,
         )
     else:
         lightning_model = lightning_model_getter(

@@ -6,7 +6,7 @@ from omegaconf import DictConfig, OmegaConf
 from PIL import Image
 from torchvision.utils import make_grid, save_image
 
-from src.data.augmentation import get_transform
+from src.data.augmentation import to_compose
 from src.data.image_processing import erase_region_using_heatmap
 from src.train.helper import load_accumulated
 from src.train.setup import get_predict_setup
@@ -30,7 +30,7 @@ def run(cfg: DictConfig) -> None:
 
     image = Image.open(image_path).convert("RGB")
 
-    transform = get_transform(cfg.transforms, "test")
+    transform = to_compose(cfg.transforms, "test")
 
     # Apply the transform to the image
     transformed_image = transform(image).to("cuda")

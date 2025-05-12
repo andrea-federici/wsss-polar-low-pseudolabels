@@ -1,7 +1,7 @@
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 import torch
-from torch import nn
 from lightning.pytorch import LightningModule
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+from torch import nn
 
 
 class BaseModel(LightningModule):
@@ -21,7 +21,7 @@ class BaseModel(LightningModule):
             x
         )  # self.model(x) calls the 'forward' method of the contained model
 
-    def process_step(self, stage: str, images, labels):
+    def _process_step(self, stage: str, images, labels):
         if stage not in {"train", "val"}:
             raise ValueError(f"Invalid stage: {stage}. Must be 'train' or 'val'.")
 
@@ -46,7 +46,7 @@ class BaseModel(LightningModule):
 
         return loss
 
-    def process_epoch_end(self, stage: str):
+    def _process_epoch_end(self, stage: str):
         if stage not in {"train", "val"}:
             raise ValueError(f"Invalid stage: {stage}. Must be 'train' or 'val'.")
 
@@ -90,21 +90,21 @@ class BaseModel(LightningModule):
     # Called for each batch of data
     def training_step(self, batch, batch_idx):
         images, labels = batch  # Unpack the batch
-        loss = self.process_step("train", images, labels)
+        loss = self._process_step("train", images, labels)
         return loss  # Return the loss for optimization
 
     # Called at the end of every training epoch to aggregate metrics and print them
     def on_train_epoch_end(self):
-        self.process_epoch_end("train")
+        self._process_epoch_end("train")
 
     def validation_step(self, batch, batch_idx):
         images, labels = batch
-        loss = self.process_step("val", images, labels)
+        loss = self._process_step("val", images, labels)
         return loss
 
     # At the end of each validation epoch, this method aggregates the outputs from all validation batches
     def on_validation_epoch_end(self):
-        self.process_epoch_end("val")
+        self._process_epoch_end("val")
 
     def configure_optimizers(self):
         return self.optimizer_config

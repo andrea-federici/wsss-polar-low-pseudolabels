@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple, Union
 
+import torch
 from omegaconf import DictConfig
 from torchvision import transforms
 
@@ -14,6 +15,7 @@ class AugConfig:
     translate_frac: Optional[float] = None
     degrees: Optional[float] = None
     scale: Optional[Tuple[float, float]] = None
+    fill_color: Union[int, float, Sequence[float]] = 0
     horizontal_flip: bool = False
     vertical_flip: bool = False
 
@@ -75,6 +77,21 @@ class AugConfig:
                     f"or equal to the second, got {self.scale}"
                 )
 
+        # Validate fill color
+        if isinstance(self.fill_color, (int, float)):
+            pass
+        elif isinstance(self.fill_color, Sequence):
+            if not all(isinstance(x, (int, float)) for x in self.fill_color):
+                raise ValueError(
+                    f"fill_color sequence must contain only ints/floats, got "
+                    f"{self.fill_color}"
+                )
+        else:
+            raise ValueError(
+                f"fill_color must be int, float, or sequence thereof, got "
+                f"{type(self.fill_color)}"
+            )
+
         # Validate horizontal_flip
         if not isinstance(self.horizontal_flip, bool):
             raise ValueError(
@@ -88,45 +105,94 @@ class AugConfig:
             )
 
 
-def get_transform(cfg_transforms: DictConfig, stage: str) -> transforms.Compose:
-    image_size = (cfg_transforms.image_width, cfg_transforms.image_height)
+def to_aug_config(cfg: DictConfig) -> AugConfig:
+    if not isinstance(cfg, DictConfig):
+        raise ValueError(
+            f"cfg_transforms must be an instance of DictConfig, got {type(cfg)}"
+        )
 
-    mean = cfg_transforms.normalization.mean
-    std = cfg_transforms.normalization.std
+    resize_width = cfg.get("image_width", None)
+    resize_height = cfg.get("image_height", None)
+
+    normalization = cfg.get("normalization", None)
+    if normalization is not None:
+        mean = normalization.get("mean", None)
+        std = normalization.get("std", None)
+    else:
+        mean = None
+        std = None
+
+    augmentation = cfg.get("augmentation", None)
+    if augmentation is not None:
+        translate_frac = augmentation.get("translate_frac", None)
+        degrees = augmentation.get("degrees", None)
+        raw_scale = augmentation.get("scale", None)
+        scale = tuple(raw_scale) if raw_scale is not None else None
+        fill_color = augmentation.get("fill_color", 0)
+        horizontal_flip = augmentation.get("horizontal_flip", False)
+        vertical_flip = augmentation.get("vertical_flip", False)
+    else:
+        translate_frac = None
+        degrees = None
+        scale = None
+        fill_color = 0
+        horizontal_flip = False
+        vertical_flip = False
+
+    return AugConfig(
+        resize_width=resize_width,
+        resize_height=resize_height,
+        mean=mean,
+        std=std,
+        translate_frac=translate_frac,
+        degrees=degrees,
+        scale=scale,
+        fill_color=fill_color,
+        horizontal_flip=horizontal_flip,
+        vertical_flip=vertical_flip,
+    )
+
+
+def to_compose(aug_config: AugConfig, stage: str) -> transforms.Compose:
+    assert stage in [
+        "train",
+        "val",
+        "test",
+    ], f"stage should be either 'train', 'val', or 'test', got '{stage}'"
+
+    transform_list = []
 
     if stage == "train":
-        transform_list = [
-            transforms.RandomAffine(
-                degrees=cfg_transforms.augmentation.degrees,
-                translate=tuple(cfg_transforms.augmentation.translate_frac),
-                scale=tuple(cfg_transforms.augmentation.scale),
-                fill=0,
-            ),
-            transforms.Resize(image_size),
-        ]
+        if aug_config.translate_frac is not None:
+            translate = tuple(aug_config.translate_frac)
+        else:
+            translate = None
 
-        if cfg_transforms.augmentation.horizontal_flip:
+        transform_list.append(
+            transforms.RandomAffine(
+                degrees=aug_config.degrees or 0.0,
+                translate=translate,
+                scale=aug_config.scale or (1.0, 1.0),
+                fill=aug_config.fill_color,
+            )
+        )
+
+        if aug_config.horizontal_flip:
             transform_list.append(transforms.RandomHorizontalFlip())
 
-        if cfg_transforms.augmentation.vertical_flip:
+        if aug_config.vertical_flip:
             transform_list.append(transforms.RandomVerticalFlip())
 
-        transform_list.extend(
-            [transforms.ToTensor(), transforms.Normalize(mean=mean, std=std)]
+    transform_list.extend(
+        [
+            transforms.Resize((aug_config.resize_width, aug_config.resize_height)),
+            transforms.ToTensor(),
+        ]
+    )
+
+    if aug_config.mean is not None and aug_config.std is not None:
+        transform_list.append(
+            transforms.Normalize(mean=aug_config.mean, std=aug_config.std),
         )
 
-        transform = transforms.Compose(transform_list)
-    elif stage in ["val", "test"]:
-        transform = transforms.Compose(
-            [
-                transforms.Resize(image_size),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=mean, std=std),
-            ]
-        )
-    else:
-        raise ValueError(
-            f"Invalid stage: {stage}. Expected one of 'train', " f"'val', 'test'."
-        )
-
-    return transform
+    return transforms.Compose(transform_list)

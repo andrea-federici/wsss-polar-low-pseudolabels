@@ -2,6 +2,7 @@ import os
 
 import torch
 from dotenv import load_dotenv
+from lightning.pytorch import Trainer
 from torchvision import transforms
 from torchvision.utils import save_image
 
@@ -17,6 +18,8 @@ load_dotenv()
 neptune_logger = create_neptune_logger(
     "andreaf/polarlows", os.getenv("NEPTUNE_API_TOKEN")
 )
+
+use_unet = True
 
 # freeze & prepare your Xception classifier first
 torch_model = Xception(num_classes=2)
@@ -88,9 +91,14 @@ transform_val = transforms.Compose(
     ]
 )
 
+if use_unet:
+    batch_size = 16
+else:
+    batch_size = 1
+
 train_loader, val_loader, _ = create_data_loaders(
     "data",
-    batch_size=1,
+    batch_size=batch_size,
     num_workers=8,
     transform_train=transform_train,
     transform_val=transform_val,
@@ -103,7 +111,7 @@ mask_trainer = MaskerLightning(classifier=classifier, mask_threshold=0.5)
 
 # Callbacks
 # Early stopping
-from pytorch_lightning.callbacks import EarlyStopping
+from lightning.pytorch.callbacks import EarlyStopping
 
 early_stop = EarlyStopping(
     monitor="val/loss",
@@ -113,155 +121,154 @@ early_stop = EarlyStopping(
 )
 
 # Learning rate monitor
-from pytorch_lightning.callbacks import LearningRateMonitor
+from lightning.pytorch.callbacks import LearningRateMonitor
 
 lr_monitor = LearningRateMonitor(logging_interval="step")
 
 callbacks = [early_stop, lr_monitor]
 callbacks = [lr_monitor]
 
+if not use_unet:
+    from adv_perturb import captum_hurricane_occlusion, find_hurricane_mask
 
-from adv_perturb import captum_hurricane_occlusion, find_hurricane_mask
+    out_dir = "out/perturbed_masks"
+    os.makedirs(out_dir, exist_ok=True)
 
-out_dir = "out/perturbed_masks"
-os.makedirs(out_dir, exist_ok=True)
+    from tqdm import tqdm
 
-from tqdm import tqdm
+    # After you pull x from the loader, x is on CPU by default,
+    # but you want mean/std on CPU as well for this un-normalize:
+    mean_tensor = torch.tensor(mean, dtype=torch.float32).view(1, 3, 1, 1)
+    std_tensor = torch.tensor(std, dtype=torch.float32).view(1, 3, 1, 1)
 
-# After you pull x from the loader, x is on CPU by default,
-# but you want mean/std on CPU as well for this un-normalize:
-mean_tensor = torch.tensor(mean, dtype=torch.float32).view(1, 3, 1, 1)
-std_tensor = torch.tensor(std, dtype=torch.float32).view(1, 3, 1, 1)
+    # Loop through dataloader
+    for batch_idx, (x, y) in enumerate(tqdm(train_loader)):
+        mask, losses = find_hurricane_mask(
+            x,
+            lit_model.model,
+            hurricane_class=1,
+            num_steps=400,  # 300
+            lr=0.2,
+            lambda_l1=0.5,
+            lambda_tv=1.0,
+            lambda_spread=0.00000001,
+            blur_sigma=20,
+            device="cuda",
+            # save_dir="out/train_perturbed_masks",
+            # save_interval=100,
+        )
 
-# Loop through dataloader
-for batch_idx, (x, y) in enumerate(tqdm(train_loader)):
-    # mask = find_hurricane_mask(
-    #     x,
-    #     lit_model.model,
-    #     hurricane_class=1,
-    #     num_steps=200,  # 300
-    #     lr=0.2,
-    #     lambda_l1=0.5,
-    #     lambda_tv=1.0,
-    #     blur_sigma=20,
-    #     device="cuda",
-    #     # save_dir="out/train_perturbed_masks",
-    #     # save_interval=100,
+        # mask = captum_hurricane_occlusion(
+        #     x,
+        #     lit_model.model,
+        #     hurricane_class=1,
+        #     patch_size=64,
+        #     stride=16,
+        #     save_dir="out/occlusion",
+        #     device="cuda",
+        # )
+
+        mask = mask.cpu()
+
+        # 2) bring images back to [0,1] for saving
+        x_vis = x.cpu() * std_tensor + mean_tensor
+        x_vis = x_vis.clamp(0, 1)
+
+        B, _, H, W = x_vis.shape
+        for j in range(B):
+            img = x_vis[j]  # 3×H×W
+            # m = (mask[j] > 0.5).float()  # 1×H×W
+            m = mask[j]  # 1×H×W
+            m3 = m.repeat(3, 1, 1)  # 3×H×W
+            pair = torch.cat([img, m3], dim=2)  # 3×H×(2W)
+
+            filename = f"img_{batch_idx:03d}_{j:03d}.png"
+            save_image(pair, os.path.join(out_dir, filename))
+
+        # Save losses plots
+        # fig, ax = plt.subplots(figsize=(6, 6))
+        # ax.plot(losses["total"], label="total")
+        # ax.plot(losses["score"], label="score")
+        # ax.plot(losses["l1"], label="l1")
+        # ax.plot(losses["tv"], label="tv")
+        # # ax.plot(losses["bin"], label="bin")
+        # # ax.plot(losses["conn"], label="conn")
+        # # ax.plot(losses["spread"], label="spread")
+        # ax.legend()
+        # ax.set_xlabel("steps")
+        # ax.set_ylabel("loss")
+        # ax.set_title("Losses")
+        # fig.savefig(os.path.join(out_dir, f"losses_{batch_idx:03d}.png"))
+        # plt.close(fig)
+
+        if batch_idx == 20:
+            break
+else:
+    trainer = Trainer(
+        max_epochs=50,
+        accelerator="gpu",
+        devices=1,
+        callbacks=callbacks,
+        logger=neptune_logger,
+        enable_checkpointing=True,
+        log_every_n_steps=1,
+        enable_progress_bar=True,
+        profiler="simple",
+    )
+    trainer.fit(mask_trainer, train_loader, val_loader)
+
+    # mask_trainer.eval().to("cuda")
+
+    # # 2) Image transform (same as training)
+    # infer_transform = transforms.Compose(
+    #     [
+    #         transforms.Resize(image_size),
+    #         transforms.ToTensor(),
+    #         transforms.Normalize(mean=mean, std=std),
+    #     ]
     # )
 
-    mask = captum_hurricane_occlusion(
-        x,
-        lit_model.model,
-        hurricane_class=1,
-        patch_size=64,
-        stride=16,
-        save_dir="out/occlusion",
-        device="cuda",
-    )
+    # # 3) Paths to test images
+    # sample_paths = ["data/train/pos/0aa613_20181003T134110_20181003T134210_mos_rgb.png"]
 
-    mask = mask.cpu()
+    # # 4) Output folder
+    # os.makedirs("output/masks", exist_ok=True)
 
-    # 2) bring images back to [0,1] for saving
-    x_vis = x.cpu() * std_tensor + mean_tensor
-    x_vis = x_vis.clamp(0, 1)
+    # # 5) Inference and saving
+    # for img_path in sample_paths:
+    #     # a) Load and transform image
+    #     img = Image.open(img_path).convert("RGB")
+    #     x = infer_transform(img).unsqueeze(0).to("cuda")  # B=1
 
-    B, _, H, W = x_vis.shape
-    for j in range(B):
-        img = x_vis[j]  # 3×H×W
-        # m = (mask[j] > 0.5).float()  # 1×H×W
-        m = mask[j]  # 1×H×W
-        m3 = m.repeat(3, 1, 1)  # 3×H×W
-        pair = torch.cat([img, m3], dim=2)  # 3×H×(2W)
+    #     # b) Predict mask
+    #     with torch.no_grad():
+    #         mask = mask_trainer(x)  # B×1×H×W
+    #     mask = mask.squeeze().cpu().numpy()  # H×W
 
-        filename = f"img_{batch_idx:03d}_{j:03d}.png"
-        save_image(pair, os.path.join(out_dir, filename))
+    #     # c) Unnormalize original image for saving
+    #     unnorm = transforms.Normalize(
+    #         mean=[-m / s for m, s in zip(mean, std)],
+    #         std=[1 / s for s in std],
+    #     )
+    #     img_tensor = unnorm(x.squeeze().cpu())
+    #     img_np = img_tensor.permute(1, 2, 0).clamp(0, 1).numpy()  # H×W×C
 
-    # Save losses plots
-    # fig, ax = plt.subplots(figsize=(6, 6))
-    # ax.plot(losses["total"], label="total")
-    # ax.plot(losses["score"], label="score")
-    # ax.plot(losses["l1"], label="l1")
-    # ax.plot(losses["tv"], label="tv")
-    # # ax.plot(losses["bin"], label="bin")
-    # # ax.plot(losses["conn"], label="conn")
-    # # ax.plot(losses["spread"], label="spread")
-    # ax.legend()
-    # ax.set_xlabel("steps")
-    # ax.set_ylabel("loss")
-    # ax.set_title("Losses")
-    # fig.savefig(os.path.join(out_dir, f"losses_{batch_idx:03d}.png"))
-    # plt.close(fig)
+    #     # d) Overlay: mask in inferno colormap, semi-transparent
+    #     fig, ax = plt.subplots(figsize=(6, 6))
+    #     ax.imshow(img_np)
+    #     ax.imshow(mask, cmap="inferno", alpha=0.5)
+    #     ax.axis("off")
 
-    if batch_idx == 20:
-        break
+    #     # e) File names
+    #     base = os.path.splitext(os.path.basename(img_path))[0]
+    #     orig_path = f"output/masks/{base}_orig.png"
+    #     mask_path = f"output/masks/{base}_mask.png"
+    #     overlay_path = f"output/masks/{base}_overlay.png"
 
-# fit
-# trainer = Trainer(
-#     max_epochs=50,
-#     accelerator="gpu",
-#     devices=1,
-#     callbacks=callbacks,
-#     logger=neptune_logger,
-#     enable_checkpointing=True,
-#     log_every_n_steps=1,
-#     enable_progress_bar=True,
-#     profiler="simple",
-#     deterministic=True,
-# )
-# trainer.fit(mask_trainer, train_loader, val_loader)
+    #     # f) Save
+    #     img.save(orig_path)
+    #     plt.imsave(mask_path, mask, cmap="gray")
+    #     fig.savefig(overlay_path, bbox_inches="tight", pad_inches=0)
+    #     plt.close(fig)
 
-# mask_trainer.eval().to("cuda")
-
-# # 2) Image transform (same as training)
-# infer_transform = transforms.Compose(
-#     [
-#         transforms.Resize(image_size),
-#         transforms.ToTensor(),
-#         transforms.Normalize(mean=mean, std=std),
-#     ]
-# )
-
-# # 3) Paths to test images
-# sample_paths = ["data/train/pos/0aa613_20181003T134110_20181003T134210_mos_rgb.png"]
-
-# # 4) Output folder
-# os.makedirs("output/masks", exist_ok=True)
-
-# # 5) Inference and saving
-# for img_path in sample_paths:
-#     # a) Load and transform image
-#     img = Image.open(img_path).convert("RGB")
-#     x = infer_transform(img).unsqueeze(0).to("cuda")  # B=1
-
-#     # b) Predict mask
-#     with torch.no_grad():
-#         mask = mask_trainer(x)  # B×1×H×W
-#     mask = mask.squeeze().cpu().numpy()  # H×W
-
-#     # c) Unnormalize original image for saving
-#     unnorm = transforms.Normalize(
-#         mean=[-m / s for m, s in zip(mean, std)],
-#         std=[1 / s for s in std],
-#     )
-#     img_tensor = unnorm(x.squeeze().cpu())
-#     img_np = img_tensor.permute(1, 2, 0).clamp(0, 1).numpy()  # H×W×C
-
-#     # d) Overlay: mask in inferno colormap, semi-transparent
-#     fig, ax = plt.subplots(figsize=(6, 6))
-#     ax.imshow(img_np)
-#     ax.imshow(mask, cmap="inferno", alpha=0.5)
-#     ax.axis("off")
-
-#     # e) File names
-#     base = os.path.splitext(os.path.basename(img_path))[0]
-#     orig_path = f"output/masks/{base}_orig.png"
-#     mask_path = f"output/masks/{base}_mask.png"
-#     overlay_path = f"output/masks/{base}_overlay.png"
-
-#     # f) Save
-#     img.save(orig_path)
-#     plt.imsave(mask_path, mask, cmap="gray")
-#     fig.savefig(overlay_path, bbox_inches="tight", pad_inches=0)
-#     plt.close(fig)
-
-#     print(f"Saved: {orig_path}, {mask_path}, {overlay_path}")
+    #     print(f"Saved: {orig_path}, {mask_path}, {overlay_path}")

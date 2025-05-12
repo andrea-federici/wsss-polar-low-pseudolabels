@@ -1,20 +1,22 @@
 import os
+from typing import List
 
 import torch
 import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
-from omegaconf import DictConfig
 from torchvision.utils import make_grid, save_image
 
 from src.data.image_processing import (
-    erase_region_using_heatmap,
     normalize_image_by_statistics,
     unnormalize_image_by_statistics,
 )
+from src.models.configs import AdversarialErasingBaseConfig
 from src.models.lightning import BaseModel
-from src.train.helper import load_accumulated
 
 
+# TODO: verify that AugConfig configuration is complete before unpacking it. Create a
+# method in AugConfig class to check completeness? Maybe create different methods to
+# check for different levels of completeness (like affine_completeness)
 class AdversarialErasingModel(BaseModel):
     def __init__(
         self,
@@ -22,97 +24,98 @@ class AdversarialErasingModel(BaseModel):
         *,
         criterion: torch.nn.Module,
         optimizer_config: dict,
-        current_iteration: int,
-        train_config: DictConfig,
-        transforms_config: dict,
+        adver_config: AdversarialErasingBaseConfig,
     ):
         super().__init__(model, criterion, optimizer_config)
-        self.current_iteration = current_iteration
-        self.base_heatmaps_dir = train_config.heatmaps.base_directory
-        self.train_config = train_config
-        self.transforms_config = transforms_config
+        self.current_iteration = adver_config.iteration
+        self.aug_config = adver_config.iteration
+        self.erase_strategy = adver_config.erase_strategy
 
-    def training_step(self, batch, batch_idx):
-        images, labels, img_paths = batch
-
-        erased_images = []
+    def _process_batch(
+        self,
+        images: torch.Tensor,
+        labels: torch.Tensor,
+        img_paths: List[str],
+        do_augment: bool = False,
+    ) -> torch.Tensor:
+        out = []
         for img, label, img_path in zip(images, labels, img_paths):
-            if self.current_iteration > 0:
-                accumulated_heatmap = load_accumulated(
-                    self.base_heatmaps_dir, img_path, label, self.current_iteration - 1
-                )
-
-                img = erase_region_using_heatmap(
-                    img.unsqueeze(0),
-                    accumulated_heatmap,
-                    threshold=self.train_config.heatmaps.threshold,
-                    fill_color=self.train_config.heatmaps.fill_color,
-                ).squeeze(0)
-
-            image_width = self.transforms_config.image_width
-            image_height = self.transforms_config.image_height
-            mean = self.transforms_config.normalization.mean
-            std = self.transforms_config.normalization.std
-
-            erased_img = unnormalize_image_by_statistics(img, mean, std)
-
-            aug_config = self.train_config.aug
-
-            # If translate_frac=0.2, and the image size is (500, 500), the possible
-            # translation range is [-100, 100] in both x and y directions.
-            max_translation_fraction = aug_config.translate_frac
-            dx = torch.randint(
-                int(-max_translation_fraction * image_width),
-                int(max_translation_fraction * image_width + 1),  # +1 to include max
-                size=(1,),
-            ).item()
-            dy = torch.randint(
-                int(-max_translation_fraction * image_height),
-                int(max_translation_fraction * image_height + 1),  # +1 to include max
-                size=(1,),
-            ).item()
-
-            max_rotation = aug_config.degrees
-            angle = torch.randint(-max_rotation, max_rotation + 1, size=(1,)).item()
-
-            max_scale_fraction = aug_config.scale
-            scale = 1.0 + (torch.rand(1).item() - 0.5) * max_scale_fraction * 2
-
-            erased_img = F.affine(
-                erased_img,
-                angle=angle,
-                translate=(dx, dy),
-                scale=scale,
-                shear=[0.0, 0.0],
-                fill=[0],  # black in normalized image (gray-ish in original image)
+            img = self.erase_strategy.erase(
+                img,
+                img_name=img_path,
+                label=label,
+                current_iteration=self.current_iteration,
             )
 
-            flips = []
+            if do_augment:
+                img = self.apply_transform(img)
 
-            if aug_config.horizontal_flip:
-                flips.append(transforms.RandomHorizontalFlip(p=0.5))
-
-            if aug_config.vertical_flip:
-                flips.append(transforms.RandomVerticalFlip(p=0.5))
-
-            flips_transform = transforms.Compose(flips)
-            erased_img = flips_transform(erased_img)
-
-            erased_img = normalize_image_by_statistics(erased_img, mean, std)
-
-            erased_images.append(erased_img)
+            out.append(img)
 
         # Convert list to batch tensor
-        erased_images = torch.stack(erased_images)
+        return torch.stack(out)
 
-        # Save a sample batch every N iterations
-        if batch_idx % 20 == 0:
-            save_dir = "out/debug_images"
-            os.makedirs(save_dir, exist_ok=True)
+    def apply_transform(self, img):
+        img = unnormalize_image_by_statistics(
+            img, self.aug_config.mean, self.aug_config.std
+        )
 
-            num_samples = min(len(erased_images), 16)  # Ensure we don't exceed
+        # If translate_frac=0.2, and the image size is (500, 500), the possible
+        # translation range is [-100, 100] in both x and y directions.
+        dx = torch.randint(
+            int(-self.aug_config.translate_frac * self.aug_config.image_width),
+            int(
+                self.aug_config.translate_frac * self.aug_config.image_width + 1
+            ),  # +1 to include max
+            size=(1,),
+        ).item()
+        dy = torch.randint(
+            int(-self.aug_config.translate_frac * self.aug_config.image_height),
+            int(
+                self.aug_config.translate_frac * self.aug_config.image_height + 1
+            ),  # +1 to include max
+            size=(1,),
+        ).item()
+
+        angle = torch.randint(
+            -self.aug_config.degrees, self.aug_config.degrees + 1, size=(1,)
+        ).item()
+
+        min_s, max_s = self.aug_config.scale
+        scale = torch.empty(1).uniform_(min_s, max_s).item()
+
+        img = F.affine(
+            img,
+            angle=angle,
+            translate=(dx, dy),
+            scale=scale,
+            shear=[0.0, 0.0],
+            fill=[0],  # black in normalized image (gray-ish in original image)
+        )
+
+        flips = []
+
+        if self.aug_config.horizontal_flip:
+            flips.append(transforms.RandomHorizontalFlip(p=0.5))
+
+        if self.aug_config.vertical_flip:
+            flips.append(transforms.RandomVerticalFlip(p=0.5))
+
+        flips_transform = transforms.Compose(flips)
+        img = flips_transform(img)
+
+        img = normalize_image_by_statistics(
+            img, self.aug_config.mean, self.aug_config.std
+        )
+
+        return img
+
+    def _maybe_save_grid(self, images, batch_idx, stage: str, every: int = 10):
+        if batch_idx % every == 0:
+            save_dir = f"out/{stage}_debug_images"
+            num_samples = min(len(images), 16)  # Ensure we don't exceed
             # batch size
-            sample_grid = make_grid(erased_images[:num_samples], nrow=4, normalize=True)
+            sample_grid = make_grid(images[:num_samples], nrow=4, normalize=True)
             save_image(
                 sample_grid,
                 os.path.join(
@@ -120,47 +123,20 @@ class AdversarialErasingModel(BaseModel):
                 ),
             )
 
-            # print(f"Saved sample images from batch {batch_idx}")
-
-        loss = super().process_step("train", erased_images, labels)
+    def training_step(self, batch, batch_idx):
+        images, labels, img_paths = batch
+        processed_images = self._process_batch(
+            images, labels, img_paths, do_augment=True
+        )
+        self._maybe_save_grid(processed_images, batch_idx, stage="train", every=20)
+        loss = super()._process_step("train", processed_images, labels)
         return loss
 
     def validation_step(self, batch, batch_idx):
         images, labels, img_paths = batch
-
-        erased_images = []
-        for img, label, img_path in zip(images, labels, img_paths):
-            if self.current_iteration > 0:
-                accumulated_heatmap = load_accumulated(
-                    self.base_heatmaps_dir, img_path, label, self.current_iteration - 1
-                )
-
-                img = erase_region_using_heatmap(
-                    img.unsqueeze(0),
-                    accumulated_heatmap,
-                    threshold=self.train_config.heatmaps.threshold,
-                    fill_color=self.train_config.heatmaps.fill_color,
-                ).squeeze(0)
-
-            erased_images.append(img)
-
-        # Convert list to batch tensor
-        erased_images = torch.stack(erased_images)
-
-        # Save a sample batch every N iterations
-        if batch_idx % 20 == 0:
-            save_dir = "out/val_debug_images"
-            os.makedirs(save_dir, exist_ok=True)
-
-            num_samples = min(len(erased_images), 16)  # Ensure we don't exceed
-            # batch size
-            sample_grid = make_grid(erased_images[:num_samples], nrow=4, normalize=True)
-            save_image(
-                sample_grid,
-                os.path.join(
-                    save_dir, f"it_{self.current_iteration}_batch_{batch_idx}.png"
-                ),
-            )
-
-        loss = super().process_step("val", erased_images, labels)
+        processed_images = self._process_batch(
+            images, labels, img_paths, do_augment=False
+        )
+        self._maybe_save_grid(processed_images, batch_idx, stage="val", every=20)
+        loss = super()._process_step("val", processed_images, labels)
         return loss

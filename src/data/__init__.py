@@ -1,9 +1,9 @@
 from . import custom_datasets, image_processing, utils
-from .augmentation import get_transform
+from .augmentation import to_compose
 
 __all__ = [
     "custom_datasets",
     "image_processing",
     "utils",
-    "get_transform",
+    "to_compose",
 ]
