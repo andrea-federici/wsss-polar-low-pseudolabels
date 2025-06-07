@@ -5,18 +5,12 @@ from src.models.erase_strategies import BaseEraseStrategy
 
 
 @dataclass
+class BaseConfig:
+    pass
+
+
+@dataclass
 class AdversarialErasingBaseConfig:
     iteration: int
     aug_config: AugConfig
     erase_strategy: BaseEraseStrategy
-
-
-@dataclass
-class AdversarialErasingHeatmapConfig(AdversarialErasingBaseConfig):
-    base_heatmaps_dir: str
-    heatmap_threshold: float
-
-
-@dataclass
-class AdversarialErasingMaskConfig(AdversarialErasingBaseConfig):
-    base_masks_dir: str

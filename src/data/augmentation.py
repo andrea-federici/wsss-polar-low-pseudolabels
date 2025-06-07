@@ -13,7 +13,7 @@ class AugConfig:
     mean: Optional[Sequence[float]] = None
     std: Optional[Sequence[float]] = None
     translate_frac: Optional[float] = None
-    degrees: Optional[float] = None
+    degrees: Optional[Union[int, float]] = None
     scale: Optional[Tuple[float, float]] = None
     fill_color: Union[int, float, Sequence[float]] = 0
     horizontal_flip: bool = False
@@ -60,9 +60,11 @@ class AugConfig:
 
         # Validate degrees
         if self.degrees is not None:
-            if not isinstance(self.degrees, float) or not (0 <= self.degrees <= 360):
+            if not isinstance(self.degrees, (int, float)) or not (
+                0 <= self.degrees <= 360
+            ):
                 raise ValueError(
-                    f"degrees must be a float between 0 and 360, got {self.degrees}"
+                    f"degrees must be a number between 0 and 360, got {self.degrees}"
                 )
 
         # Validate scale
@@ -111,8 +113,8 @@ def to_aug_config(cfg: DictConfig) -> AugConfig:
             f"cfg_transforms must be an instance of DictConfig, got {type(cfg)}"
         )
 
-    resize_width = cfg.get("image_width", None)
-    resize_height = cfg.get("image_height", None)
+    resize_width = cfg.get("resize_width", None)
+    resize_height = cfg.get("resize_height", None)
 
     normalization = cfg.get("normalization", None)
     if normalization is not None:
@@ -154,6 +156,10 @@ def to_aug_config(cfg: DictConfig) -> AugConfig:
 
 
 def to_compose(aug_config: AugConfig, stage: str) -> transforms.Compose:
+    assert isinstance(
+        aug_config, AugConfig
+    ), f"aug_config should be of type AugConfig, received type {type(aug_config)}"
+
     assert stage in [
         "train",
         "val",
@@ -163,8 +169,9 @@ def to_compose(aug_config: AugConfig, stage: str) -> transforms.Compose:
     transform_list = []
 
     if stage == "train":
-        if aug_config.translate_frac is not None:
-            translate = tuple(aug_config.translate_frac)
+        tf = aug_config.translate_frac
+        if tf is not None:
+            translate = (tf, tf)
         else:
             translate = None
 

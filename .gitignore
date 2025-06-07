@@ -22,4 +22,5 @@ colab_runner.ipynb
 # Output directories
 /out
 /outputs
-myscript.log
+*.out
+*.log

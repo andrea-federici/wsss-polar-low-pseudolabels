@@ -19,7 +19,7 @@ neptune_logger = create_neptune_logger(
     "andreaf/polarlows", os.getenv("NEPTUNE_API_TOKEN")
 )
 
-use_unet = True
+use_unet = False
 
 # freeze & prepare your Xception classifier first
 torch_model = Xception(num_classes=2)
@@ -142,64 +142,67 @@ if not use_unet:
     std_tensor = torch.tensor(std, dtype=torch.float32).view(1, 3, 1, 1)
 
     # Loop through dataloader
+    occlusion = True
     for batch_idx, (x, y) in enumerate(tqdm(train_loader)):
-        mask, losses = find_hurricane_mask(
-            x,
-            lit_model.model,
-            hurricane_class=1,
-            num_steps=400,  # 300
-            lr=0.2,
-            lambda_l1=0.5,
-            lambda_tv=1.0,
-            lambda_spread=0.00000001,
-            blur_sigma=20,
-            device="cuda",
-            # save_dir="out/train_perturbed_masks",
-            # save_interval=100,
-        )
+        if occlusion is False:
+            mask, losses = find_hurricane_mask(
+                x,
+                lit_model.model,
+                hurricane_class=1,
+                num_steps=400,  # 300
+                lr=0.2,
+                lambda_l1=0.5,
+                lambda_tv=1.0,
+                lambda_spread=0.0,
+                blur_sigma=20,
+                device="cuda",
+                save_dir="out/train_perturbed_masks",
+                save_interval=100,
+            )
 
-        # mask = captum_hurricane_occlusion(
-        #     x,
-        #     lit_model.model,
-        #     hurricane_class=1,
-        #     patch_size=64,
-        #     stride=16,
-        #     save_dir="out/occlusion",
-        #     device="cuda",
-        # )
+            mask = mask.cpu()
 
-        mask = mask.cpu()
+            # 2) bring images back to [0,1] for saving
+            x_vis = x.cpu() * std_tensor + mean_tensor
+            x_vis = x_vis.clamp(0, 1)
 
-        # 2) bring images back to [0,1] for saving
-        x_vis = x.cpu() * std_tensor + mean_tensor
-        x_vis = x_vis.clamp(0, 1)
+            B, _, H, W = x_vis.shape
+            for j in range(B):
+                img = x_vis[j]  # 3×H×W
+                # m = (mask[j] > 0.5).float()  # 1×H×W
+                m = mask[j]  # 1×H×W
+                m3 = m.repeat(3, 1, 1)  # 3×H×W
+                pair = torch.cat([img, m3], dim=2)  # 3×H×(2W)
 
-        B, _, H, W = x_vis.shape
-        for j in range(B):
-            img = x_vis[j]  # 3×H×W
-            # m = (mask[j] > 0.5).float()  # 1×H×W
-            m = mask[j]  # 1×H×W
-            m3 = m.repeat(3, 1, 1)  # 3×H×W
-            pair = torch.cat([img, m3], dim=2)  # 3×H×(2W)
+                filename = f"img_{batch_idx:03d}_{j:03d}.png"
+                save_image(pair, os.path.join(out_dir, filename))
 
-            filename = f"img_{batch_idx:03d}_{j:03d}.png"
-            save_image(pair, os.path.join(out_dir, filename))
-
-        # Save losses plots
-        # fig, ax = plt.subplots(figsize=(6, 6))
-        # ax.plot(losses["total"], label="total")
-        # ax.plot(losses["score"], label="score")
-        # ax.plot(losses["l1"], label="l1")
-        # ax.plot(losses["tv"], label="tv")
-        # # ax.plot(losses["bin"], label="bin")
-        # # ax.plot(losses["conn"], label="conn")
-        # # ax.plot(losses["spread"], label="spread")
-        # ax.legend()
-        # ax.set_xlabel("steps")
-        # ax.set_ylabel("loss")
-        # ax.set_title("Losses")
-        # fig.savefig(os.path.join(out_dir, f"losses_{batch_idx:03d}.png"))
-        # plt.close(fig)
+            # Save losses plots
+            # fig, ax = plt.subplots(figsize=(6, 6))
+            # ax.plot(losses["total"], label="total")
+            # ax.plot(losses["score"], label="score")
+            # ax.plot(losses["l1"], label="l1")
+            # ax.plot(losses["tv"], label="tv")
+            # # ax.plot(losses["bin"], label="bin")
+            # # ax.plot(losses["conn"], label="conn")
+            # # ax.plot(losses["spread"], label="spread")
+            # ax.legend()
+            # ax.set_xlabel("steps")
+            # ax.set_ylabel("loss")
+            # ax.set_title("Losses")
+            # fig.savefig(os.path.join(out_dir, f"losses_{batch_idx:03d}.png"))
+            # plt.close(fig)
+        else:
+            mask = captum_hurricane_occlusion(
+                x,
+                lit_model.model,
+                hurricane_class=1,
+                patch_size=128,
+                stride=32,
+                threshold=0.75,
+                save_dir="out/occlusion",
+                device="cuda",
+            )
 
         if batch_idx == 20:
             break

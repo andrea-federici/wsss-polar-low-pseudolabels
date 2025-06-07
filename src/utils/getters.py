@@ -1,9 +1,9 @@
 import torch.nn as nn
 import torch.optim as optim
 from lightning.pytorch import LightningModule
-from omegaconf import DictConfig
 from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 
+from src.models.configs import AdversarialErasingBaseConfig, BaseConfig
 from src.models.lightning import (  # MaxTranslationsModel,
     AdversarialErasingModel,
     BaseModel,
@@ -28,9 +28,9 @@ def lightning_model_getter(
     *,
     criterion: nn.Module,
     optimizer_config: dict,
+    model_config: BaseConfig,
     stage: str = "train",
     checkpoint_path: str = None,
-    **kwargs,
 ) -> LightningModule:
 
     assert stage in [
@@ -53,39 +53,17 @@ def lightning_model_getter(
     if lightning_model_name == "base":
         return BaseModel(torch_model, criterion, optimizer_config)
     elif lightning_model_name == "adversarial_erasing":
-        print("kwargs:", kwargs)
-        base_heatmaps_dir = kwargs.get("base_heatmaps_dir", None)
-        if base_heatmaps_dir is None:
-            raise ValueError(
-                "The 'base_heatmaps_dir' argument is required for the 'adversarial erasing' "
-                "model."
-            )
-        heatmap_treshold = kwargs.get("base_heatmaps_dir", None)
-        if heatmap_treshold is None:
-            raise ValueError(
-                "The 'heatmap_threshold' argument is required for the 'adversarial erasing' "
-                "model."
-            )
-        iteration = kwargs.get("iteration", None)
-        if iteration is None:
-            raise ValueError(
-                "The 'iteration' argument is required for the 'adversarial erasing' "
-                "model."
-            )
-        aug_config = kwargs.get("aug_config", None)
-        if aug_config is None:
-            raise ValueError(
-                "The 'aug_config' argument is required for the 'adversarial erasing' "
-                "model."
+        if not isinstance(model_config, AdversarialErasingBaseConfig):
+            raise TypeError(
+                "Mode 'adversarial_erasing' requires an adversarial "
+                "erasing configuration."
             )
         if stage == "train":
             return AdversarialErasingModel(
                 model=torch_model,
                 criterion=criterion,
                 optimizer_config=optimizer_config,
-                base_heatmaps_dir=base_heatmaps_dir,
-                current_iteration=iteration,
-                aug_config=aug_config,
+                adver_config=model_config,
             )
         elif stage == "predict":
             return AdversarialErasingModel.load_from_checkpoint(
@@ -93,9 +71,7 @@ def lightning_model_getter(
                 model=torch_model,
                 criterion=criterion,
                 optimizer_config=optimizer_config,
-                base_heatmaps_dir=base_heatmaps_dir,
-                current_iteration=iteration,
-                aug_config=aug_config,
+                adver_config=model_config,
             )
     else:
         raise ValueError(

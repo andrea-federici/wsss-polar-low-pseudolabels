@@ -3,6 +3,7 @@ from typing import Dict, List, Tuple
 
 import torch
 import torch.nn.functional as F
+from skimage.measure import label
 from torchvision.transforms import GaussianBlur
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -53,6 +54,27 @@ def spread_loss(mask: torch.Tensor) -> torch.Tensor:
     return spread_per_image.mean()  # Average across batch
 
 
+def largest_cc(mask: torch.Tensor) -> torch.Tensor:
+    """
+    mask:  (B, 1, H, W) float or bool tensor on CPU (0/1)
+    returns: same shape, 1 only on pixels of the largest CC within each batch sample
+    """
+    out = []
+    m_np = mask.squeeze(1).cpu().numpy().astype(bool)  # (B, H, W)
+    for im in m_np:
+        lbl = label(im, connectivity=1)
+        if lbl.max() == 0:
+            # no foreground
+            out.append(torch.zeros_like(mask[0, 0]))
+        else:
+            # find largest label
+            counts = [(lbl == i).sum() for i in range(1, lbl.max() + 1)]
+            largest = counts.index(max(counts)) + 1
+            out.append(torch.from_numpy((lbl == largest).astype(float)))
+    out = torch.stack(out, dim=0).unsqueeze(1)  # (B,1,H,W)
+    return out.to(mask.device)
+
+
 def find_hurricane_mask(
     x: torch.Tensor,
     classifier: torch.nn.Module,
@@ -71,6 +93,7 @@ def find_hurricane_mask(
     device: torch.device = None,
     save_dir: str = None,
     save_interval: int = 100,
+    use_lcc: bool = False,
 ) -> Tuple[torch.Tensor, Dict[str, List[float]]]:
     """
     Given:
@@ -127,6 +150,8 @@ def find_hurricane_mask(
         mean = torch.tensor([0.2872, 0.2872, 0.4595], device=device).view(1, 3, 1, 1)
         std = torch.tensor([0.1806, 0.1806, 0.2621], device=device).view(1, 3, 1, 1)
 
+    if use_lcc:
+        comp_mask = None
     for step in tqdm(range(num_steps)):
         optimizer.zero_grad()
 
@@ -142,11 +167,22 @@ def find_hurricane_mask(
 
         # 3a) Binarize for perturbation
         m_j_hard = (m_j > 0.5).float()  # exactly 0 or 1
+
+        if use_lcc:
+            comp = largest_cc(m_j_hard)
+            comp_mask = comp
+
         # 3b) Straight-through trick: forward uses m_hard, backward uses m
         m_ste = m_j_hard.detach() - m.detach() + m
+        if use_lcc:
+            m_lcc = m_ste * comp + m_ste.detach() + m
 
         # 4) Perturb with the hard mask
-        x_pert = m_ste * x_j + (1 - m_ste) * b_j
+        if use_lcc:
+            x_pert = m_lcc * x_j + (1 - m_lcc) * b_j
+        else:
+            x_pert = m_ste * x_j + (1 - m_ste) * b_j
+        x_pert = x_pert.to(dtype=torch.float32, device=x_pert.device)
         logits = classifier(x_pert)  # B×num_classes
         score = F.softmax(logits, dim=1)[:, hurricane_class]
         score = score.mean()
@@ -209,6 +245,14 @@ def find_hurricane_mask(
         optimizer.step()
         with torch.no_grad():
             m.clamp_(0.0, 1.0)
+
+        # save final masks
+        final_mask = (m > 0.5).float()
+
+    if save_dir and use_lcc:
+        # print(f"Saving to {save_dir}")
+        save_image(final_mask[0], f"{save_dir}/final_mask.png")
+        save_image(comp_mask[0], f"{save_dir}/final_lcc.png")
 
     return (m > 0.5).float(), losses
 
@@ -308,7 +352,8 @@ def captum_hurricane_occlusion(
     hurricane_class: int,
     patch_size: int = None,
     stride: int = None,
-    baseline: float = 0.5,
+    baseline: float = 0.0,
+    top_k: int = 100,
     threshold: float = 0.5,
     save_dir: str = None,
     device: torch.device = None,
@@ -345,29 +390,45 @@ def captum_hurricane_occlusion(
     a = attributions[0, 0]  # [H, W]
     a = a - a.min()
     a = a / (a.max() + 1e-8)
-    heatmap = a.unsqueeze(0).unsqueeze(0)  # [1, 1, H, W]
 
-    mask = (heatmap >= threshold).float()  # [1, 1, H, W]
+    # Flatten and pick top_k indices
+    flat = a.view(-1)
+    if top_k > flat.numel():
+        raise ValueError(f"top_k={top_k} exceeds number of pixels={flat.numel()}")
+    # torch.topk returns largest values; indices are in the flattened array
+    _, topk_idxs = torch.topk(flat, k=top_k, largest=True)
 
-    if save_dir:
-        os.makedirs(save_dir, exist_ok=True)
-        img = x[0]  # [3, H, W]
-        m = mask[0]  # [1, H, W]
-        img_np = normalize_image_to_range(img.cpu().permute(1, 2, 0).numpy())
-        m_np = m.cpu().permute(1, 2, 0).numpy()
+    # Build binary mask
+    mask = torch.zeros_like(flat)
+    mask[topk_idxs] = 1.0
+    mask = mask.view_as(a)  # [H, W]
 
-        fig, axs = plt.subplots(1, 2, figsize=(8, 4))
-        axs[0].imshow(img_np)
-        axs[0].set_title("Original Image")
-        axs[0].axis("off")
+    # mask = (heatmap >= threshold).float()  # [1, 1, H, W]
+    # mask = heatmap.float()
 
-        axs[1].imshow(m_np, cmap="gray", vmin=0, vmax=1)
-        axs[1].set_title("Binary Mask")
-        axs[1].axis("off")
+    # if save_dir:
+    #     os.makedirs(save_dir, exist_ok=True)
+    #     img = x[0]  # [3, H, W]
+    #     m = mask[0]  # [1, H, W]
+    #     img_np = normalize_image_to_range(img.cpu().permute(1, 2, 0).numpy())
+    #     m_np = m.cpu().permute(1, 2, 0).numpy()
 
-        plt.tight_layout()
+    #     fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    #     axs[0].imshow(img_np)
+    #     axs[0].set_title("Original Image")
+    #     axs[0].axis("off")
 
-        plot_pil = plot_to_pil_image(fig)
-        plot_pil.save(os.path.join(save_dir, "sidebyside.png"))
+    #     axs[1].imshow(m_np, cmap="gray", vmin=0, vmax=1)
+    #     axs[1].set_title("Binary Mask")
+    #     axs[1].axis("off")
+
+    #     plt.tight_layout()
+
+    #     r = torch.rand((1))
+    #     print(r)
+    #     plot_pil = plot_to_pil_image(fig)
+    #     plot_pil.save(os.path.join(save_dir, f"sidebyside_{r}.png"))
+
+    # plt.close(fig)
 
     return mask

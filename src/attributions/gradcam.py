@@ -1,8 +1,9 @@
-from typing import Union
+from typing import Sequence, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
+import torch.nn.functional as F
 from captum.attr import LayerGradCam
 
 from src.data.image_processing import convert_to_np_array, normalize_image_to_range
@@ -17,6 +18,8 @@ class GradCAM:
         # TODO: This is fine for now. But if the model is still going to be
         # used for training after performing GradCAM operations, then it
         # should be reverted back to its original training mode.
+        # Look here: https://stackoverflow.com/questions/65344578/how-to-check-if-a-model-is-in-train-or-eval-mode-in-pytorch
+        # Should probably not use a class but just individual methods
         self.model.eval()
 
     def generate_heatmap(
@@ -88,6 +91,58 @@ class GradCAM:
         norm_heatmap = heatmap / max_value if max_value != 0 else heatmap
 
         return norm_heatmap
+
+    # When using this method we want to pass the image at the highest possible resolution
+    def generate_super_heatmap(
+        self,
+        image: torch.Tensor,
+        target_size: Tuple[int],  # (H, W)
+        sizes: Sequence[int],
+        target_class: int,
+        layer: torch.nn.Module = None,
+    ) -> torch.Tensor:
+        if image.dim() != 4:
+            raise ValueError(
+                f"Expected image to be a 4D tensor (1, C, H, W), but "
+                f"got shape {image.shape}"
+            )
+
+        # If no layer is specified, use the last layer of the feature
+        # extractor
+        if layer is None:
+            layer = self.model.get_last_conv_layer()
+
+        H, W = target_size
+        resized_heatmaps = []
+
+        for s in sizes:
+            img_resized = F.interpolate(
+                image, size=(s, s), mode="bilinear", align_corners=False
+            )
+            heatmap = self.generate_heatmap(
+                img_resized, target_class=target_class, layer=layer
+            )
+            heatmap_up = (
+                F.interpolate(
+                    heatmap.unsqueeze(0).unsqueeze(0),
+                    size=(H, W),
+                    mode="bilinear",
+                    align_corners=False,
+                )
+                .squeeze(0)
+                .squeeze(0)
+            )
+            resized_heatmaps.append(heatmap_up)
+
+        stacked = torch.stack(resized_heatmaps, dim=0)
+        mean_heatmap = stacked.mean(dim=0)
+
+        hmin = mean_heatmap.min()
+        hmax = mean_heatmap.max()
+        denom = (hmax - hmin).clamp_min(1e-6)
+        super_heatmap = (mean_heatmap - hmin) / denom
+
+        return super_heatmap
 
     def overlay_heatmap(
         self,

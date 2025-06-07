@@ -14,8 +14,8 @@ data_dir: data
 
 ## TRANSFORMS ##
 transforms:
-  image_width: 512
-  image_height: 512
+  resize_width: 512
+  resize_height: 512
 
   normalization:
     mean: [0.2872, 0.2872, 0.4595]

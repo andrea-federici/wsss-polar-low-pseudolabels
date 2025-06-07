@@ -2,13 +2,14 @@ name: adversarial_erasing
 dataset_type: adversarial_erasing
 train_data_transform: val
 lightning_model: adversarial_erasing
+erase_strategy: heatmap
 
 ## SPECIFIC TO ADVERSARIAL ERASING ##
 train_config:
-  max_iterations: 20
+  max_iterations: 15
   heatmaps:
     base_directory: out/heatmaps
-    threshold: 0.75
+    threshold: 0.7
     fill_color: 0
   aug:
     translate_frac: 0.35  # Same for both x and y

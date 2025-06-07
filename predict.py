@@ -8,7 +8,7 @@ from torchvision.utils import make_grid, save_image
 
 from src.data.augmentation import to_compose
 from src.data.image_processing import erase_region_using_heatmap
-from src.train.helper import load_accumulated
+from src.train.helper import load_accumulated_heatmap
 from src.train.setup import get_predict_setup
 
 
@@ -37,7 +37,7 @@ def run(cfg: DictConfig) -> None:
 
     adv_img = erase_region_using_heatmap(
         transformed_image.unsqueeze(0),
-        load_accumulated(
+        load_accumulated_heatmap(
             "out/heatmaps",
             img_name=image_path,
             label=1,

@@ -6,3 +6,5 @@ optuna-integration[pytorch_lightning]
 python-dotenv
 timm
 torchinfo
+
+# TODO: list needs to be updated

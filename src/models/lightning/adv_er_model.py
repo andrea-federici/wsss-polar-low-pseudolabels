@@ -6,10 +6,7 @@ import torchvision.transforms as transforms
 import torchvision.transforms.functional as F
 from torchvision.utils import make_grid, save_image
 
-from src.data.image_processing import (
-    normalize_image_by_statistics,
-    unnormalize_image_by_statistics,
-)
+import src.data.image_processing as image_processing
 from src.models.configs import AdversarialErasingBaseConfig
 from src.models.lightning import BaseModel
 
@@ -28,7 +25,7 @@ class AdversarialErasingModel(BaseModel):
     ):
         super().__init__(model, criterion, optimizer_config)
         self.current_iteration = adver_config.iteration
-        self.aug_config = adver_config.iteration
+        self.aug_config = adver_config.aug_config
         self.erase_strategy = adver_config.erase_strategy
 
     def _process_batch(
@@ -48,31 +45,31 @@ class AdversarialErasingModel(BaseModel):
             )
 
             if do_augment:
-                img = self.apply_transform(img)
+                img = self._apply_transform(img)
 
             out.append(img)
 
         # Convert list to batch tensor
         return torch.stack(out)
 
-    def apply_transform(self, img):
-        img = unnormalize_image_by_statistics(
+    def _apply_transform(self, img):
+        img = image_processing.unnormalize_image_by_statistics(
             img, self.aug_config.mean, self.aug_config.std
         )
 
         # If translate_frac=0.2, and the image size is (500, 500), the possible
         # translation range is [-100, 100] in both x and y directions.
         dx = torch.randint(
-            int(-self.aug_config.translate_frac * self.aug_config.image_width),
+            int(-self.aug_config.translate_frac * self.aug_config.resize_width),
             int(
-                self.aug_config.translate_frac * self.aug_config.image_width + 1
+                self.aug_config.translate_frac * self.aug_config.resize_width + 1
             ),  # +1 to include max
             size=(1,),
         ).item()
         dy = torch.randint(
-            int(-self.aug_config.translate_frac * self.aug_config.image_height),
+            int(-self.aug_config.translate_frac * self.aug_config.resize_height),
             int(
-                self.aug_config.translate_frac * self.aug_config.image_height + 1
+                self.aug_config.translate_frac * self.aug_config.resize_height + 1
             ),  # +1 to include max
             size=(1,),
         ).item()
@@ -104,7 +101,7 @@ class AdversarialErasingModel(BaseModel):
         flips_transform = transforms.Compose(flips)
         img = flips_transform(img)
 
-        img = normalize_image_by_statistics(
+        img = image_processing.normalize_image_by_statistics(
             img, self.aug_config.mean, self.aug_config.std
         )
 
@@ -113,6 +110,7 @@ class AdversarialErasingModel(BaseModel):
     def _maybe_save_grid(self, images, batch_idx, stage: str, every: int = 10):
         if batch_idx % every == 0:
             save_dir = f"out/{stage}_debug_images"
+            os.makedirs(save_dir, exist_ok=True)
             num_samples = min(len(images), 16)  # Ensure we don't exceed
             # batch size
             sample_grid = make_grid(images[:num_samples], nrow=4, normalize=True)

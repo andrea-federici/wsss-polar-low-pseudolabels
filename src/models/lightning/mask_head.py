@@ -97,6 +97,26 @@ def clean_mask(
     return largest_blob.astype(np.uint8)
 
 
+def largest_cc(mask: torch.Tensor) -> torch.Tensor:
+    """
+    mask: (B, 1, H, W) float or bool tensor on CPU (0/1)
+    returns: same shape, 1 only on pixels of the largest CC within each batch sample
+    """
+    out = []
+    m_np = mask.squeeze(1).cpu().numpy().astype(bool)  # (B, H, W)
+    for im in m_np:
+        lbl = measure.label(im, connectivity=1)
+        if lbl.max() == 0:
+            cc = np.zeros_like(im, dtype=float)
+        else:
+            counts = [(lbl == i).sum() for i in range(1, lbl.max() + 1)]
+            largest = np.argmax(counts) + 1
+            cc = (lbl == largest).astype(float)
+        out.append(torch.from_numpy(cc))
+    out = torch.stack(out, dim=0).unsqueeze(1).float()  # (B,1,H,W)
+    return out.to(mask.device)
+
+
 class MaskerLightning(pl.LightningModule):
     def __init__(
         self,
@@ -180,7 +200,10 @@ class MaskerLightning(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch  # x: input images (B×3×H×W), y: ground-truth class labels (B,)
 
-        mask = self(x)
+        ste = self(x)
+        hard = (ste.detach() > 0.5).float()
+        comp = largest_cc(hard)
+        mask = ste * comp + ste.detach() * (1 - comp)
 
         # Perturb using hard mask
         # TODO: use dataset mean/std to normalize x

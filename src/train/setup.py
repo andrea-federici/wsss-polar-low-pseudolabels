@@ -8,6 +8,8 @@ from torch.utils.data import DataLoader
 
 from src.data.augmentation import to_aug_config, to_compose
 from src.data.data_loaders import create_data_loaders
+from src.models.configs import AdversarialErasingBaseConfig
+from src.models.erase_strategies import HeatmapEraseStrategy, MaskEraseStrategy
 from src.train.logger import create_neptune_logger
 from src.utils.getters import (
     criterion_getter,
@@ -29,7 +31,7 @@ class TrainSetup:
 
 # TODO: add support for optuna
 # TODO: add support for max_translations
-def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
+def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
 
     ## LOGGER ##
     neptune_logger = create_neptune_logger(cfg.neptune.project, cfg.neptune.api_key)
@@ -71,23 +73,46 @@ def get_train_setup(cfg: DictConfig, **kwargs) -> TrainSetup:
 
     ## LIGHTNING MODEL ##
     if cfg.mode.lightning_model == "adversarial_erasing":
+        if iteration is None:
+            raise ValueError(
+                "Iteration value must be provided with adversarial erasing"
+            )
+        if cfg.mode.erase_strategy == "heatmap":
+            heatmaps_config = cfg.mode.train_config.heatmaps
+            heatmap_erase_strategy = HeatmapEraseStrategy(
+                fill_color=heatmaps_config.fill_color,
+                base_dir=heatmaps_config.base_directory,
+                heatmap_threshold=heatmaps_config.threshold,
+            )
+            model_config = AdversarialErasingBaseConfig(
+                iteration=iteration,
+                aug_config=aug_config,
+                erase_strategy=heatmap_erase_strategy,
+            )
+        elif cfg.mode.erase_strategy == "mask":
+            mask_erase_strategy = MaskEraseStrategy(
+                base_dir=cfg.mode.train_config.heatmaps.base_directory,
+                fill_color=cfg.mode.train_config.heatmaps.fill_color,
+            )
+            model_config = AdversarialErasingBaseConfig(
+                iteration=iteration,
+                aug_config=aug_config,
+                erase_strategy=mask_erase_strategy,
+            )
+        else:
+            raise ValueError(
+                f"Adversarial erasing strategy '{cfg.mode.erase_strategy}' not supported."
+            )
         lightning_model = lightning_model_getter(
-            cfg,
+            cfg.mode.lightning_model,
             torch_model,
-            criterion,
-            optimizer_config,
-            base_heatmaps_dir=kwargs["base_heatmaps_dir"]
-            
-            iteration=kwargs["iteration"],
-            aug_config=aug_config,
+            criterion=criterion,
+            optimizer_config=optimizer_config,
+            model_config=model_config,
         )
     else:
-        lightning_model = lightning_model_getter(
-            cfg,
-            torch_model,
-            criterion,
-            optimizer_config,
-        )
+        # TODO: add else condition ?
+        pass
 
     ## CALLBACKS ##
 

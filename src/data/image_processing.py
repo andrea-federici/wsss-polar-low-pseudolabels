@@ -308,9 +308,7 @@ def erase_region_using_heatmap(
         (H, W),
         interpolation=T.InterpolationMode.BILINEAR,
         antialias=True,
-    ).unsqueeze(
-        0
-    )  # Now (1, 1, H, W)
+    ).unsqueeze(0)  # Now (1, 1, H, W)
 
     # Expand heatmap: (1, 1, H, W) -> (B, 1, H, W) to match batch
     # size.
@@ -319,7 +317,7 @@ def erase_region_using_heatmap(
     # If fill_color is a scalar (int or float), convert it to a tensor
     if isinstance(fill_color, (int, float)):
         fill_color = torch.full(
-            (B, C, 1, 1), fill_color, dtype=image.dtype, device=image.device
+            (B, C, H, W), fill_color, dtype=image.dtype, device=image.device
         )
     else:
         # Ensure fill_color has the correct number of channels (C)
@@ -327,30 +325,81 @@ def erase_region_using_heatmap(
             fill_color.shape[0] == C
         ), "fill_color should match the number \
             of channels of the image"
-        fill_color = fill_color.view(1, C, 1, 1).expand(B, C, H, W)
+        fill_color = fill_color.view(1, C, 1, 1).expand(B, C, H, W).to(image.device)
 
     # Create erase mask: (B, 1, H, W) -> broadcast to (B, C, H, W)
-    erase_mask = (heatmap > threshold).expand(B, C, H, W)
-
-    # Clone images to avoid modifying original tensors
-    erased_image = image.clone()
-
-    print(f"erased_image shape: {erased_image.shape}, dtype: {erased_image.dtype}")
-    print(f"erase_mask shape: {erase_mask.shape}, dtype: {erase_mask.dtype}")
-    print(f"fill_color shape: {fill_color.shape}, dtype: {fill_color.dtype}")
-    print(f"Expanded fill_color shape: {fill_color.expand_as(erased_image).shape}")
-
-    # Check how many elements are being accessed
-    print(f"erase_mask sum: {erase_mask.sum().item()} (number of pixels affected)")
-
-    if torch.isnan(erased_image).any():
-        print("NaN detected in erased_image!")
-    if torch.isnan(fill_color).any():
-        print("NaN detected in fill_color!")
-    if torch.isnan(erase_mask).any():
-        print("NaN detected in erase_mask!")
+    erase_mask = (heatmap > threshold).expand(B, C, H, W).to(image.device)
 
     # Apply erasing by filling masked regions with the specified fill color
-    erased_image[erase_mask] = fill_color.expand_as(erased_image)[erase_mask]
+    erased_image = torch.where(erase_mask, fill_color, image)
 
+    return erased_image
+
+
+def erase_region_using_mask(
+    image: torch.Tensor, mask: torch.Tensor, fill_color=0
+) -> torch.Tensor:
+    """
+    Erase (remove) regions in the image where the binary mask equals 1.
+    Pixels corresponding to mask=1 are replaced with `fill_color`, while mask=0
+    pixels remain unchanged.
+
+    Args:
+        image (torch.Tensor):
+            A 4D tensor of shape (B, C, H, W) representing a batch of images.
+        mask (torch.Tensor):
+            A 2D tensor of shape (H, W) or a 3D tensor (B, 1, H, W) of dtype bool or int,
+            indicating which pixels to erase (1) or keep (0). If 2D, it is applied
+            to every image in the batch.
+        fill_color (int, float, or torch.Tensor, optional):
+            The value to fill erased regions. If scalar, all channels are filled
+            with this value. If a tensor of shape (C,), each channel uses the
+            corresponding value. Default is 0.
+
+    Returns:
+        torch.Tensor:
+            A new tensor of the same shape as `image`, with masked regions erased.
+
+    Raises:
+        AssertionError:
+            If `image` is not 4D or if `mask` has incompatible dimensions, or if
+            `fill_color` tensor does not match image channels.
+    """
+    # Validate image dimensions
+    assert image.dim() == 4, f"Expected image of shape (B,C,H,W), got {image.shape}"
+
+    B, C, H, W = image.shape
+
+    # Prepare the mask: ensure shape (B, 1, H, W) and dtype bool
+    if mask.dim() == 2:
+        mask = mask.unsqueeze(0).unsqueeze(0)
+        mask = mask.expand(B, 1, H, W)
+    elif mask.dim() == 3:
+        # Expect (B, 1, H, W) or (B, H, W)
+        if mask.shape[1] == 1:
+            mask = mask
+        else:
+            mask = mask.unsqueeze(1)
+    else:
+        raise AssertionError(f"Mask must be 2D or 3D, got {mask.dim()}D")
+
+    mask = mask.bool().to(image.device)
+
+    # Prepare fill_color
+    if isinstance(fill_color, (int, float)):
+        fill = torch.full(
+            (B, C, H, W), fill_color, dtype=image.dtype, device=image.device
+        )
+    else:
+        assert isinstance(
+            fill_color, torch.Tensor
+        ), "fill_color must be scalar or tensor"
+        assert fill_color.shape[0] == C, "fill_color tensor must have length C"
+        fill = fill_color.view(1, C, 1, 1).expand(B, C, H, W).to(image.device)
+
+    # Broadcast mask to cover all channels
+    erase_mask = mask.expand(B, C, H, W).to(image.device)  # Maybe no need to move to image.device since mask is already there
+
+    # Apply erase
+    erased_image = torch.where(erase_mask, fill, image)
     return erased_image

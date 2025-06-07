@@ -1,17 +1,11 @@
 import sys
 
-from dotenv import load_dotenv
-import torch
 import hydra
+import torch
+from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 
-from src.train.mode import (
-    train_single,
-    # train_optuna,
-    train_adv_er,
-    train_adv_er_unet,
-    # finetune_max_tr
-)
+from src.train.mode import train_adv_er, train_single  # train_optuna,; finetune_max_tr
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -33,8 +27,6 @@ def run(cfg: DictConfig) -> None:
     #     train_optuna.run(cfg)
     elif mode == "adversarial_erasing":
         train_adv_er.run(cfg)
-    elif mode == "adver_unet":
-        train_adv_er_unet.run(cfg)
     # elif mode == 'max_translations':
     #     finetune_max_tr.run(cfg)
     else:
