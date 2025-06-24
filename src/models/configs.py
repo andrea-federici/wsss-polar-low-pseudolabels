@@ -10,7 +10,7 @@ class BaseConfig:
 
 
 @dataclass
-class AdversarialErasingBaseConfig:
+class AdversarialErasingBaseConfig(BaseConfig):
     iteration: int
     aug_config: AugConfig
     erase_strategy: BaseEraseStrategy

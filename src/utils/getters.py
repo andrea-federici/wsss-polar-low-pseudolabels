@@ -11,6 +11,7 @@ from src.models.lightning import (  # MaxTranslationsModel,
 from src.models.torch import Xception
 
 
+# TODO: use dictionary for model names
 def torch_model_getter(model_name: str, num_classes: int = 2) -> nn.Module:
     if model_name == "xception":
         return Xception(num_classes=num_classes)
@@ -21,62 +22,34 @@ def torch_model_getter(model_name: str, num_classes: int = 2) -> nn.Module:
 
 
 # TODO: add support for max_translations
-# TODO: fix checkpoint loading for other lightning models
+# TODO: use dictionary for lightning model names
 def lightning_model_getter(
     lightning_model_name: str,
     torch_model: nn.Module,
     *,
     criterion: nn.Module,
     optimizer_config: dict,
-    model_config: BaseConfig,
-    stage: str = "train",
-    checkpoint_path: str = None,
+    model_config: BaseConfig = None,
 ) -> LightningModule:
+    BASE = "base"
+    ADVERSARIAL_ERASING = "adversarial_erasing"
 
-    assert stage in [
-        "train",
-        "predict",
-    ], f"Invalid stage: {stage}. Available options: ['train', 'predict']"
-
-    if stage == "train":
-        if checkpoint_path is not None:
-            print(
-                "Checkpoint path is provided, but it will be ignored since stage is "
-                "set to 'train'."
-            )
-
-    if stage == "predict":
-        assert (
-            checkpoint_path is not None
-        ), "Checkpoint path is required for prediction."
-
-    if lightning_model_name == "base":
+    if lightning_model_name == BASE:
         return BaseModel(torch_model, criterion, optimizer_config)
-    elif lightning_model_name == "adversarial_erasing":
+    elif lightning_model_name == ADVERSARIAL_ERASING:
         if not isinstance(model_config, AdversarialErasingBaseConfig):
             raise TypeError(
-                "Mode 'adversarial_erasing' requires an adversarial "
-                "erasing configuration."
+                f"Mode '{ADVERSARIAL_ERASING}' requires an adversarial erasing configuration."
             )
-        if stage == "train":
-            return AdversarialErasingModel(
-                model=torch_model,
-                criterion=criterion,
-                optimizer_config=optimizer_config,
-                adver_config=model_config,
-            )
-        elif stage == "predict":
-            return AdversarialErasingModel.load_from_checkpoint(
-                checkpoint_path=checkpoint_path,
-                model=torch_model,
-                criterion=criterion,
-                optimizer_config=optimizer_config,
-                adver_config=model_config,
-            )
+        return AdversarialErasingModel(
+            model=torch_model,
+            criterion=criterion,
+            optimizer_config=optimizer_config,
+            adver_config=model_config,
+        )
     else:
         raise ValueError(
-            f"Invalid lightning model name: {lightning_model_name}. "
-            f"Available options: ['base', 'adversarial_erasing']"
+            f"Invalid lightning model name: {lightning_model_name}. Available options: ['{BASE}', '{ADVERSARIAL_ERASING}']"
         )
 
 
@@ -97,8 +70,7 @@ def criterion_getter(criterion_name: str):
 def optimizer_getter(
     optimizer_name: str, torch_model: nn.Module, learning_rate: float
 ) -> optim.Optimizer:
-
-    if optimizer_name == "adam":
+    optimizers = {
         # model.parameters() returns an iterator over all model
         # parameters (weights and biases)
         # Each parameter is a tensor, and each tensor has a 'requires_grad'
@@ -109,14 +81,19 @@ def optimizer_getter(
         # only the elements for which the function returns True.
         # This line filters out the parameters that should not be updated during
         # backpropagation (frozen layers)
-        return optim.Adam(
+        "adam": optim.Adam(
             filter(lambda p: p.requires_grad, torch_model.parameters()),
             lr=learning_rate,
         )
-    else:
+    }
+
+    if optimizer_name not in optimizers:
         raise ValueError(
-            f"Invalid optimizer name: {optimizer_name}. " f"Available options: ['adam']"
+            f"Invalid optimizer name: {optimizer_name}. "
+            f"Available options: {list(optimizers.keys())}"
         )
+    else:
+        return optimizers[optimizer_name]
 
 
 def lr_scheduler_getter(
@@ -126,10 +103,16 @@ def lr_scheduler_getter(
     patience: int,
     factor: float,
 ) -> LRScheduler:
-    if lr_scheduler_name == "reduce_lr_on_plateau":
-        return ReduceLROnPlateau(optimizer, mode=mode, patience=patience, factor=factor)
-    else:
+    schedulers = {
+        "reduce_lr_on_plateau": ReduceLROnPlateau(
+            optimizer, mode=mode, patience=patience, factor=factor
+        )
+    }
+
+    if lr_scheduler_name not in schedulers:
         raise ValueError(
             f"Invalid lr_scheduler name: {lr_scheduler_name}. "
-            f"Available options: ['reduce_lr_on_plateu']"
+            f"Available options: {list(schedulers.keys())}"
         )
+    else:
+        return schedulers[lr_scheduler_name]

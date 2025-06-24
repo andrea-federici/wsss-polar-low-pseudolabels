@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 import src.data.augmentation as aug
-from adv_perturb import captum_hurricane_occlusion
+from archive.adv_perturb import captum_hurricane_occlusion
 from src.attributions.gradcam import GradCAM
 from src.data.adversarial_erasing_io import (
     load_accumulated_heatmap,
