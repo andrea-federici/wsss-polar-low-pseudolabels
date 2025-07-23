@@ -308,7 +308,9 @@ def erase_region_using_heatmap(
         (H, W),
         interpolation=T.InterpolationMode.BILINEAR,
         antialias=True,
-    ).unsqueeze(0)  # Now (1, 1, H, W)
+    ).unsqueeze(
+        0
+    )  # Now (1, 1, H, W)
 
     # Expand heatmap: (1, 1, H, W) -> (B, 1, H, W) to match batch
     # size.
@@ -398,7 +400,9 @@ def erase_region_using_mask(
         fill = fill_color.view(1, C, 1, 1).expand(B, C, H, W).to(image.device)
 
     # Broadcast mask to cover all channels
-    erase_mask = mask.expand(B, C, H, W).to(image.device)  # Maybe no need to move to image.device since mask is already there
+    erase_mask = mask.expand(B, C, H, W).to(
+        image.device
+    )  # Maybe there is no need to move to image.device since mask is already there
 
     # Apply erase
     erased_image = torch.where(erase_mask, fill, image)

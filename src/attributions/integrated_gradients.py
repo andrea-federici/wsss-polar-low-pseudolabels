@@ -1,55 +1,129 @@
-import cv2
+from typing import Tuple
 
+import cv2
 import numpy as np
 import torch
 from captum.attr import IntegratedGradients
 
-from train_config import device
-from data.image_processing import normalize_image_to_range
+from src.data.image_processing import normalize_image_to_range
 
 
-def generate_heatmap(model: torch.nn.Module, input_image: torch.Tensor, target_class: int = -1, n_steps: int = 50, baseline = None):
+def generate_heatmap(
+    model: torch.nn.Module,
+    image: torch.Tensor,
+    *,
+    target_class: int = None,
+    n_steps: int = 50,
+    baseline=None,
+) -> torch.Tensor:
+    """
+    Generates an Integrated Gradients heatmap for a given model and input image.
+
+    Args:
+        model (torch.nn.Module): The model to explain.
+        image (torch.Tensor): Input image tensor of shape (1, C, H, W).
+        target_class (int, optional): Class index to compute attributions for.
+            If None, uses the predicted class.
+        n_steps (int): Number of steps for IG path integral approximation.
+        baseline (torch.Tensor, optional): Baseline input tensor. Defaults to a black image.
+
+    Returns:
+        torch.Tensor: A 2D heatmap tensor of shape (H, W), normalized to [0, 1].
+    """
+    if image.dim() != 4:
+        raise ValueError(
+            f"Expected image to be a 4D tensor (1, C, H, W), but "
+            f"got shape {image.shape}"
+        )
+
+    was_training = model.training
+    model.zero_grad()
     model.eval()
 
-    input_image = input_image.to(device) # Move image to the same device as the model
+    try:
+        image = image.to(model.device)  # Move image to the same device as the model
 
-    if baseline is None:
-        baseline = torch.zeros_like(input_image) # Use a black image as the baseline is no baseline is provided
+        if baseline is None:
+            baseline = torch.zeros_like(
+                image
+            )  # Use a black image as the baseline is no baseline is provided
 
-    ig = IntegratedGradients(model.forward)
+        ig = IntegratedGradients(model)
 
-    # Get predicted class
-    logits = model(input_image)
-    predicted_class = torch.argmax(logits, dim=1).item()
+        if target_class is None:
+            # Get the predicted class for the input image
+            logits = model(image)
+            target_class = torch.argmax(logits, dim=1).item()
 
-    # If the target class is not specified, use the predicted class
-    if target_class == -1:
-        target_class = predicted_class
+        attributions = ig.attribute(
+            image,
+            baselines=baseline,
+            target=target_class,
+            n_steps=n_steps,
+        )
 
-    attributions, _ = ig.attribute(
-        input_image,
-        baselines=baseline,
-        target=target_class,
-        n_steps=n_steps,
-        return_convergence_delta=True
-    )
+        attributions = attributions.squeeze().detach().mean(dim=0)
 
-    print(f'Attributions shape: {attributions.shape}')
+        # Normalize to [0, 1]
+        min_val = attributions.min()
+        max_val = attributions.max()
+        denom = (max_val - min_val).clamp(min=1e-8)
+        norm_attributions = (attributions - min_val) / denom
 
-    attributions = attributions.squeeze().detach().cpu().numpy() # Convert to NumPy
+        return norm_attributions
 
-    # Aggregate attributions across channels
-    attributions = np.mean(attributions, axis=0)
+    finally:
+        if was_training:
+            model.train()
 
-    # Normalize the attributions to [0, 1]
-    norm_attributions = (attributions - np.min(attributions)) / (np.max(attributions) - np.min(attributions) + 1e-8) # Normalize the attributions
 
-    return norm_attributions, predicted_class
-    
+def generate_mask_from_heatmap(
+    image: torch.Tensor,
+    heatmap: torch.Tensor,
+    *,
+    percentile: int = 98,
+    kernel_size: Tuple[int, int] = (15, 15),
+    min_area_fraction: float = 0.2,
+) -> np.ndarray:
+    """
+    Generates a binary mask from a heatmap by applying percentile thresholding,
+    morphological operations, and area-based filtering.
 
-def generate_mask_from_heatmap(input_image: torch.Tensor, heatmap, percentile=98, kernel_size=(15,15), min_area=50) -> np.ndarray:
-    original_size = input_image.shape[2:] # Assume the input image is in the format (C, H, W)
-    heatmap_resized = cv2.resize(heatmap, (original_size[1], original_size[0]), interpolation=cv2.INTER_LINEAR)
+    Args:
+        image (torch.Tensor): Input image tensor of shape (1, C, H, W), used
+            to determine the target size for resizing the heatmap.
+        heatmap (torch.Tensor): A 2D heatmap tensor of shape (H, W) with values
+            typically in the range [0, 1].
+        percentile (int, optional): Percentile threshold used to binarize the
+            heatmap. Defaults to 98, meaning only the top 2% of heatmap values
+            are retained.
+        kernel_size (Tuple[int, int], optional): Size of the structuring element
+            used for morphological closing. Defaults to (15, 15).
+        min_area_fraction (float, optional): Minimum area for a region to be
+            kept, expressed as a fraction of the largest detected contour.
+            Defaults to 0.2 (i.e., 20% of the largest region).
+
+    Returns:
+        np.ndarray: A 2D binary mask (uint8) of shape (H, W), where salient regions
+            are marked with 1s and the background with 0s.
+
+    Raises:
+        ValueError: If `heatmap` is not a 2D tensor or if `image` is not a 4D tensor.
+    """
+    if heatmap.dim() != 2:
+        raise ValueError(
+            f"Expected heatmap to be a 2D tensor (H, W), but got shape {heatmap.shape}"
+        )
+    if image.dim() != 4:
+        raise ValueError(
+            f"Expected input_image to be a 4D tensor (B, C, H, W), but got shape "
+            "{image.shape}"
+        )
+
+    heatmap = heatmap.detach().cpu().numpy()
+
+    _, _, H, W = image.shape
+    heatmap_resized = cv2.resize(heatmap, (H, W), interpolation=cv2.INTER_LINEAR)
 
     # Binarize the heatmap using a threshold calculated based on the percentile
     heatmap_flattened = heatmap_resized.flatten()
@@ -62,79 +136,125 @@ def generate_mask_from_heatmap(input_image: torch.Tensor, heatmap, percentile=98
     blurred_mask = cv2.GaussianBlur(closed_mask, (15, 15), 0)
 
     # Area opening: Remove small objects based on minimum area
-    fraction_of_biggest = 0.2
-    ao_mask = blurred_mask.copy()
-    contours, _ = cv2.findContours(ao_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, _ = cv2.findContours(
+        blurred_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
 
     areas = [cv2.contourArea(c) for c in contours]
     if areas:
         max_area = max(areas)
-        min_area = max_area * fraction_of_biggest
+        min_area = max_area * min_area_fraction
     else:
         min_area = 0
-    
+
     for c in contours:
         if cv2.contourArea(c) < min_area:
-            cv2.drawContours(ao_mask, [c], -1, 0, -1)
+            cv2.drawContours(blurred_mask, [c], -1, 0, -1)
 
     # Apply Gaussian blur again to smooth the mask
-    final_mask = cv2.GaussianBlur(ao_mask, (31, 31), 0)
+    final_mask = cv2.GaussianBlur(blurred_mask, (31, 31), 0).astype(np.uint8)
 
     return final_mask
 
 
-def overlay_mask(input_image: torch.Tensor, mask: np.ndarray, alpha: float = 0.5):
-    # Convert the input image to a NumPy array and normalize it
+def overlay_mask(
+    input_image: torch.Tensor, mask: np.ndarray, *, alpha: float = 0.5
+) -> np.ndarray:
+    """
+    Overlays a binary mask onto a tensor image using a specified transparency.
+
+    Args:
+        input_image (torch.Tensor): Image tensor of shape (1, C, H, W).
+        mask (np.ndarray): Binary mask of shape (H, W) with values 0 or 1.
+        alpha (float, optional): Blending factor for the overlay. Defaults to 0.5.
+
+    Returns:
+        np.ndarray: Image array of shape (H, W, C) with the overlay applied.
+
+    Raises:
+        ValueError: If `mask` is not a binary mask with values 0 or 1.
+    """
+    if not np.array_equal(mask, mask.astype(bool)):
+        raise ValueError("Expected binary mask with values 0 or 1.")
+
     img_np = input_image.squeeze(0).permute(1, 2, 0).numpy()
     img_np = normalize_image_to_range(img_np, target_range=(0, 1))
 
     # Create a color overlay from the binary mask
     color_overlay = np.zeros_like(img_np)
-    color_overlay[mask == 1] = [75, 0, 130]
+    color_overlay[mask == 1] = [75, 0, 130]  # Purple
 
     # Blend the original image with the color overlay
     img_with_mask = img_np.copy()
-    img_with_mask[mask == 1] = cv2.addWeighted(
-        color_overlay[mask == 1],
-        alpha,
-        img_np[mask == 1],
-        1 - alpha,
-        0
+    img_with_mask[mask == 1] = (
+        alpha * color_overlay[mask == 1] + (1 - alpha) * img_np[mask == 1]
     )
+
     return img_with_mask
 
 
-def overlay_heatmap(input_image: torch.Tensor, heatmap: np.ndarray, predicted_class, target_class=-1, alpha: float = 0.6, percentile_neg: float = 97, percentile_pos: float = 98) -> np.ndarray:
-    img_np = input_image.squeeze(0).permute(1, 2, 0).numpy()
+def overlay_heatmap(
+    image: torch.Tensor,
+    heatmap: np.ndarray,
+    target_class: int,
+    alpha: float = 0.6,
+    percentile_neg: float = 97,
+    percentile_pos: float = 98,
+) -> np.ndarray:
+    """
+    Overlays a green heatmap onto an input image based on class-specific saliency regions.
+
+    Args:
+        image (torch.Tensor): Input image tensor of shape (1, C, H, W), expected to be in
+            the range [0, 1] or [0, 255].
+        heatmap (np.ndarray): 2D array of shape (H, W) representing the saliency or activation
+            map to be overlaid.
+        target_class (int): Class label for which the overlay should be generated. If 0,
+            `percentile_neg` is used; otherwise, `percentile_pos`.
+        alpha (float, optional): Transparency level of the overlay. Defaults to 0.6.
+        percentile_neg (float, optional): Percentile used to threshold the heatmap for class 0.
+            Defaults to 97.
+        percentile_pos (float, optional): Percentile used to threshold the heatmap for non-zero
+            classes. Defaults to 98.
+
+    Returns:
+        np.ndarray: A NumPy array representing the RGB image with a green heatmap overlay,
+        of shape (H, W, 3), dtype uint8, in the range [0, 255].
+
+    Raises:
+        ValueError: If the image is not a 4D tensor or if the heatmap is not a 2D array.
+    """
+    if image.dim() != 4:
+        raise ValueError(
+            f"Expected image to be a 4D tensor (1, C, H, W), but got shape {image.shape}"
+        )
+
+    if heatmap.ndim != 2:
+        raise ValueError(
+            f"Expected heatmap to be a 2D array (H, W), but got shape {heatmap.shape}"
+        )
+
+    img_np = image.squeeze(0).permute(1, 2, 0).detach().cpu().numpy().astype(np.float32)
 
     heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
 
-    # If the target class is not specified, use the predicted class
-    if target_class == -1:
-        target_class = predicted_class
-
     # Set the percentile based on the target class
-    if target_class == 0:
-        percentile = percentile_neg
-    else:
-        percentile = percentile_pos
-
-    # Flatten the heatmap
-    heatmap_flattened = heatmap_resized.flatten()
+    percentile = percentile_neg if target_class == 0 else percentile_pos
 
     # Calculate the threshold based on the percentile
-    threshold = np.percentile(heatmap_flattened, percentile)
+    threshold = np.percentile(heatmap_resized.flatten(), percentile)
 
     # Apply threshold to focus on high attribution regions
     heatmap_thresholded = np.where(heatmap_resized >= threshold, heatmap_resized, 0)
 
     # Create a green-only heatmap
-    green_heatmap = np.zeros_like(img_np)
-    green_heatmap[:, :, 1] = (heatmap_thresholded * 255).astype(np.uint8) # Green channel
+    green_heatmap = np.zeros_like(img_np, dtype=np.float32)
+    green_heatmap[:, :, 1] = np.clip(heatmap_thresholded, 0, 1)
 
     # Apply a small Gaussian blur to make dots more visible
     green_heatmap = cv2.GaussianBlur(green_heatmap, (15, 15), 0)
 
-    image_with_heatmap = cv2.addWeighted(green_heatmap, alpha, img_np, 1 - alpha, 0) # Overlay the heatmap on the original image
+    # Blend the heatmap with the original image
+    image_with_heatmap = cv2.addWeighted(green_heatmap, alpha, img_np, 1 - alpha, 0)
 
     return image_with_heatmap
