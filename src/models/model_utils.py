@@ -1,9 +1,7 @@
 import torch
 
-def get_layer_from_name(
-        model: torch.nn.Module,
-        layer_name: str
-) -> torch.nn.Module:
+
+def get_layer_from_name(model: torch.nn.Module, layer_name: str) -> torch.nn.Module:
     """
     Retrieve a specific layer from a PyTorch model by its name.
 
@@ -27,5 +25,5 @@ def get_layer_from_name(
 
         if target_layer:
             return target_layer
-         
+
     return None

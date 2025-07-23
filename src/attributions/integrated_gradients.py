@@ -15,6 +15,7 @@ def generate_heatmap(
     target_class: int = None,
     n_steps: int = 50,
     baseline=None,
+    device: str = "cpu",
 ) -> torch.Tensor:
     """
     Generates an Integrated Gradients heatmap for a given model and input image.
@@ -26,6 +27,7 @@ def generate_heatmap(
             If None, uses the predicted class.
         n_steps (int): Number of steps for IG path integral approximation.
         baseline (torch.Tensor, optional): Baseline input tensor. Defaults to a black image.
+        device (str, optional): The device to run the computations on. Defaults to "cpu".
 
     Returns:
         torch.Tensor: A 2D heatmap tensor of shape (H, W), normalized to [0, 1].
@@ -41,7 +43,7 @@ def generate_heatmap(
     model.eval()
 
     try:
-        image = image.to(model.device)  # Move image to the same device as the model
+        image = image.to(device)  # Move image to the same device as the model
 
         if baseline is None:
             baseline = torch.zeros_like(

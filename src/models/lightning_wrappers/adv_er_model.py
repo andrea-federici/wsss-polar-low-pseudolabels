@@ -8,12 +8,10 @@ from torchvision.utils import make_grid, save_image
 
 import src.data.image_processing as image_processing
 from src.models.configs import AdversarialErasingBaseConfig
-from src.models.lightning import BaseModel
+
+from .base_model import BaseModel
 
 
-# TODO: verify that AugConfig configuration is complete before unpacking it. Create a
-# method in AugConfig class to check completeness? Maybe create different methods to
-# check for different levels of completeness (like affine_completeness)
 class AdversarialErasingModel(BaseModel):
     def __init__(
         self,
@@ -27,6 +25,13 @@ class AdversarialErasingModel(BaseModel):
         self.current_iteration = adver_config.iteration
         self.aug_config = adver_config.aug_config
         self.erase_strategy = adver_config.erase_strategy
+
+        if not self.aug_config.is_valid_for_adversarial_erasing():
+            raise ValueError(
+                "Augmentation configuration is not valid for adversarial erasing. "
+                "Ensure that 'mean', 'std', 'translate_frac', 'degrees', and 'scale' "
+                "are set."
+            )
 
     def _process_batch(
         self,

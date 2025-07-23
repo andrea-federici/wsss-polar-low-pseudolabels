@@ -4,25 +4,22 @@ from lightning.pytorch import LightningModule
 from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 
 from src.models.configs import AdversarialErasingBaseConfig, BaseConfig
-from src.models.lightning import (  # MaxTranslationsModel,
-    AdversarialErasingModel,
-    BaseModel,
-)
+from src.models.lightning_wrappers import AdversarialErasingModel, BaseModel
 from src.models.torch import Xception
+from src.utils.constants import ADVERSARIAL_ERASING, BASE
 
 
-# TODO: use dictionary for model names
-def torch_model_getter(model_name: str, num_classes: int = 2) -> nn.Module:
-    if model_name == "xception":
-        return Xception(num_classes=num_classes)
-    else:
+def torch_model_getter(model_name: str, num_classes) -> nn.Module:
+    models = {
+        "xception": Xception(num_classes=num_classes),
+    }
+    if model_name not in models:
         raise ValueError(
-            f"Invalid model name: {model_name}. " f"Available options: ['xception']"
+            f"Invalid model name: {model_name}. Available options: {list(models.keys())}"
         )
+    return models[model_name]
 
 
-# TODO: add support for max_translations
-# TODO: use dictionary for lightning model names
 def lightning_model_getter(
     lightning_model_name: str,
     torch_model: nn.Module,
@@ -31,15 +28,13 @@ def lightning_model_getter(
     optimizer_config: dict,
     model_config: BaseConfig = None,
 ) -> LightningModule:
-    BASE = "base"
-    ADVERSARIAL_ERASING = "adversarial_erasing"
-
     if lightning_model_name == BASE:
         return BaseModel(torch_model, criterion, optimizer_config)
     elif lightning_model_name == ADVERSARIAL_ERASING:
         if not isinstance(model_config, AdversarialErasingBaseConfig):
             raise TypeError(
-                f"Mode '{ADVERSARIAL_ERASING}' requires an adversarial erasing configuration."
+                f"Mode '{ADVERSARIAL_ERASING}' requires an adversarial erasing "
+                "configuration."
             )
         return AdversarialErasingModel(
             model=torch_model,
@@ -49,7 +44,8 @@ def lightning_model_getter(
         )
     else:
         raise ValueError(
-            f"Invalid lightning model name: {lightning_model_name}. Available options: ['{BASE}', '{ADVERSARIAL_ERASING}']"
+            f"Invalid lightning model name: {lightning_model_name}. "
+            f"Available options: ['{BASE}', '{ADVERSARIAL_ERASING}']"
         )
 
 

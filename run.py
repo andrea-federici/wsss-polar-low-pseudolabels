@@ -5,7 +5,7 @@ import torch
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 
-from src.train.mode import train_adv_er, train_single  # train_optuna,; finetune_max_tr
+from src.train.mode import train_adv_er, train_single
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")

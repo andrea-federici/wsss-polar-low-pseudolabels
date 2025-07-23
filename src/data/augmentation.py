@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Optional, Sequence, Tuple, Union
 
-import torch
 from omegaconf import DictConfig
 from torchvision import transforms
 
@@ -105,6 +104,14 @@ class AugConfig:
             raise ValueError(
                 f"vertical_flip must be a boolean, got {type(self.vertical_flip)}"
             )
+
+    def is_valid_for_adversarial_erasing(self) -> bool:
+        """
+        Check if the configuration is valid for adversarial erasing.
+        This means that all necessary fields are set.
+        """
+        necessary = ["mean", "std", "translate_frac", "degrees", "scale"]
+        return all(getattr(self, f) is not None for f in necessary)
 
 
 def to_aug_config(cfg: DictConfig) -> AugConfig:

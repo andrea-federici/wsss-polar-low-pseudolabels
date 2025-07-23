@@ -25,6 +25,8 @@ class BaseModel(LightningModule):
         if stage not in {"train", "val"}:
             raise ValueError(f"Invalid stage: {stage}. Must be 'train' or 'val'.")
 
+        batch_size = images.size(0)
+
         logits = self(images)  # Forward pass to get predictions
         loss = self.criterion(logits, labels)  # Calculate loss
 
@@ -42,7 +44,14 @@ class BaseModel(LightningModule):
         else:
             raise AttributeError(f"The attribute '{outputs_attr}' does not exist.")
 
-        self.log(f"{stage}/batch_loss", loss, prog_bar=True)
+        self.log(
+            f"{stage}/batch_loss",
+            loss,
+            on_step=True,
+            on_epoch=True,
+            batch_size=batch_size,
+            prog_bar=True,
+        )
 
         return loss
 

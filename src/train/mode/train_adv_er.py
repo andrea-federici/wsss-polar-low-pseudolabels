@@ -7,9 +7,8 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+import src.attributions.gradcam as gradcam
 import src.data.augmentation as aug
-from archive.adv_perturb import captum_hurricane_occlusion
-from src.attributions.gradcam import GradCAM
 from src.data.adversarial_erasing_io import (
     load_accumulated_heatmap,
     load_accumulated_mask,
@@ -89,13 +88,12 @@ def generate_and_save_heatmaps(
     )
     os.makedirs(save_dir, exist_ok=True)
 
-    gradcam = GradCAM(model.model, device)
-
     total_count = 0
     neg_count = 0
 
     with torch.no_grad():
         # TODO: remove enumerate and batch_idx
+        # TODO: fix progress bar
         for batch_idx, (images, labels, img_paths) in enumerate(
             tqdm(dataloader, desc="Generating Heatmaps")
         ):
@@ -131,12 +129,17 @@ def generate_and_save_heatmaps(
                         # )
 
                     # heatmap = gradcam.generate_heatmap(img, target_class=1)
+                    # TODO: why is model not already on cuda????
+                    model = model.to("cuda")
                     heatmap = gradcam.generate_super_heatmap(
+                        model.model,
                         img,
                         target_size=(512, 512),
                         sizes=[512, 512 * 2, 512 * 3],
                         target_class=1,
+                        device=model.device,
                     )
+                    print(model.device)
                     # mask = captum_hurricane_occlusion(
                     #     x=img,
                     #     classifier=model.model,

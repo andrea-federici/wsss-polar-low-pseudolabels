@@ -29,8 +29,6 @@ class TrainSetup:
     logger: NeptuneLogger
 
 
-# TODO: add support for optuna
-# TODO: add support for max_translations
 def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
 
     ## LOGGER ##
@@ -72,7 +70,11 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
     }
 
     ## LIGHTNING MODEL ##
-    if cfg.mode.lightning_model == "adversarial_erasing":
+    lightning_model_name = cfg.mode.lightning_model
+    if lightning_model_name == "base":
+        # TODO: implement this
+        pass
+    elif lightning_model_name == "adversarial_erasing":
         if iteration is None:
             raise ValueError(
                 "Iteration value must be provided with adversarial erasing"
@@ -111,8 +113,7 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
             model_config=model_config,
         )
     else:
-        # TODO: add else condition ?
-        pass
+        raise ValueError(f"Lightning model '{lightning_model_name}' not supported.")
 
     ## CALLBACKS ##
 

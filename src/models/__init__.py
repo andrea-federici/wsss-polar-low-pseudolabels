@@ -1,3 +1,3 @@
-from . import lightning, torch
+from . import lightning_wrappers, torch
 
-__all__ = ["lightning", "torch"]
+__all__ = ["lightning_wrappers", "torch"]
