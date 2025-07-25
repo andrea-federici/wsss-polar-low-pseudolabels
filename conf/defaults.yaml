@@ -10,7 +10,10 @@ neptune:
   api_key: ${oc.env:NEPTUNE_API_TOKEN}
 
 ## DATA ##
-data_dir: data
+data:
+  directory: data
+  original_width: 800
+  original_height: 800
 
 ## TRANSFORMS ##
 transforms:

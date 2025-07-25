@@ -15,7 +15,6 @@ def generate_heatmap(
     *,
     target_class: int = None,
     layer: torch.nn.Module = None,
-    device: str = "cpu",
 ) -> torch.Tensor:
     """
     Generates a Grad-CAM heatmap for a given input image and target class.
@@ -36,7 +35,6 @@ def generate_heatmap(
         layer (torch.nn.Module, optional): The layer of the model to
             compute Grad-CAM attributions from. If None, the last
             convolutional layer of the model is used.
-        device (str, optional): The device to run the computations on. Defaults to "cpu".
 
     Returns:
         torch.Tensor: A 2D tensor of shape (H, W) representing the
@@ -66,7 +64,7 @@ def generate_heatmap(
         gradcam = LayerGradCam(model, layer)
 
         # Move image to the same device as the model
-        image = image.to(device)
+        image = image.to(next(model.parameters()).device)
 
         if target_class is None:
             # Get the predicted class for the input image
@@ -101,7 +99,6 @@ def generate_super_heatmap(
     sizes: Sequence[int],
     target_class: int,
     layer: torch.nn.Module = None,
-    device: str = "cpu",
 ) -> torch.Tensor:
     """
     Generates a multi-scale (super) Grad-CAM heatmap by computing Grad-CAM
@@ -121,7 +118,6 @@ def generate_super_heatmap(
         target_class (int): The class index for which Grad-CAM is computed.
         layer (torch.nn.Module, optional): The convolutional layer to use for
             Grad-CAM. If None, the last convolutional layer of the model is used.
-        device (str, optional): The device to run the computations on. Defaults to "cpu".
 
     Returns:
         torch.Tensor: A 2D tensor of shape `target_size` (H, W), representing
@@ -140,7 +136,8 @@ def generate_super_heatmap(
     if not all(isinstance(s, int) and s > 0 for s in sizes):
         raise ValueError("All elements in `sizes` must be positive integers.")
 
-    image = image.to(device)
+    # Move image to the same device as the model
+    image = image.to(next(model.parameters()).device)
 
     was_training = model.training
     model.eval()

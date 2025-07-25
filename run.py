@@ -23,22 +23,36 @@ def run(cfg: DictConfig) -> None:
     mode = cfg.mode.name
     if mode == "single":
         train_single.run(cfg)
-    # elif mode == 'optuna':
-    #     train_optuna.run(cfg)
     elif mode == "adversarial_erasing":
         train_adv_er.run(cfg)
-    # elif mode == 'max_translations':
-    #     finetune_max_tr.run(cfg)
     else:
         raise ValueError(f"Invalid mode: {mode}")
 
 
 def validate_hardware_config(cfg):
-    if cfg.hardware.accelerator == "gpu" or cfg.hardware.accelerator == "cuda":
-        if not torch.cuda.is_available():
-            print("Error: GPU was requested but is not available on this " "machine.")
-            sys.exit(1)
-    print("Hardware configuration is valid.")
+    device = cfg.hardware.device
+    accelerator = cfg.hardware.accelerator
+    cuda_available = torch.cuda.is_available()
+
+    if device not in ["cpu", "cuda"]:
+        raise ValueError(
+            f"Invalid device: {device}. " "Available options: ['cpu', 'cuda']"
+        )
+
+    if device == "cuda" and not cuda_available:
+        raise ValueError(
+            "CUDA device requested but CUDA is not available on this machine."
+        )
+
+    accel = "cuda" if accelerator in ["gpu", "cuda"] else "cpu"
+    if accel == "cuda" and not cuda_available:
+        raise ValueError(
+            "GPU/CUDA accelerator requested but CUDA is not available on this machine."
+        )
+
+    print(
+        f"Hardware configuration is valid. Using device: {device}, accelerator: {accelerator}"
+    )
 
 
 if __name__ == "__main__":

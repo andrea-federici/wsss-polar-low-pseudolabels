@@ -1,10 +1,12 @@
 import os
 from datetime import datetime
+from typing import Union
 
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from tqdm import tqdm
 
 import src.attributions.gradcam as gradcam
@@ -14,6 +16,7 @@ from src.data.adversarial_erasing_io import (
     load_accumulated_mask,
 )
 from src.data.custom_datasets import ImageFilenameDataset
+from src.data.data_loaders import create_class_dataloader
 from src.data.image_processing import (
     erase_region_using_heatmap,
     erase_region_using_mask,
@@ -23,7 +26,8 @@ from src.utils.neptune_utils import NeptuneLogger
 
 
 def run(cfg: DictConfig) -> None:
-    # Load generate_and_save function using a getter, given name from config
+    # TODO: Load generate_and_save function using a getter, given name from config
+    # TODO: add possibility for hot start given initial checkpoint?
 
     for iteration in range(0, cfg.mode.train_config.max_iterations):
         ts = get_train_setup(cfg, iteration=iteration)
@@ -41,26 +45,32 @@ def run(cfg: DictConfig) -> None:
         )
         os.makedirs(current_heatmaps_dir, exist_ok=True)
 
+        # Remember that Lightning automatically moves the model to "cuda" if available,
+        # and then moves the model back to "cpu" after training, even if the model was
+        # on the "cuda" device before calling the fit() function.
         ts.trainer.fit(lightning_model, ts.train_loader, ts.val_loader)
 
-        aug_heatmap_gen = aug.to_aug_config(cfg.transforms)
-        aug_heatmap_gen.resize_width = 800
-        aug_heatmap_gen.resize_height = 800
         # Generate new heatmaps for next iteration
-        train_val_data = ImageFilenameDataset(
-            os.path.join(cfg.data_dir, "train"),
-            transform=aug.to_compose(aug_heatmap_gen, "val"),
+        heatmap_load_transform = aug.to_compose(
+            aug.AugConfig(
+                resize_width=cfg.data.original_width,  # Full resolution
+                resize_height=cfg.data.original_height,
+                mean=cfg.transforms.normalization.mean,
+                std=cfg.transforms.normalization.std,
+            ),
+            "val",
         )
         generate_and_save_heatmaps(
-            lightning_model,
-            train_val_data,
-            heatmaps_config.base_directory,
-            iteration,
-            current_heatmaps_dir,
-            cfg.num_workers,
-            heatmaps_config.threshold,
-            heatmaps_config.fill_color,
+            lightning_model.model,
+            data_dir=os.path.join(cfg.data.directory, "train"),
+            transform=heatmap_load_transform,
+            base_heatmaps_dir=heatmaps_config.base_directory,
+            iteration=iteration,
+            save_dir=current_heatmaps_dir,
+            threshold=heatmaps_config.threshold,
+            fill_color=heatmaps_config.fill_color,
             logger=logger,
+            device=cfg.hardware.device,
         )
 
         logger.experiment[f"end_time"] = datetime.now().isoformat()
@@ -69,46 +79,65 @@ def run(cfg: DictConfig) -> None:
 
 
 def generate_and_save_heatmaps(
-    model,
-    dataset,
-    base_heatmaps_dir,
-    current_iteration,
-    save_dir,
-    num_workers,
-    threshold,
-    fill_color,
+    model: torch.nn.Module,
+    *,
+    data_dir: str,
+    transform: transforms.Compose,
+    base_heatmaps_dir: str,
+    iteration: int,
+    save_dir: str,
+    threshold: float,
+    fill_color: Union[int, float],
     logger: NeptuneLogger,
+    target_class: int = 1,
+    batch_size: int = 32,
+    num_workers: int = 4,
+    device: str = "cpu",
 ):
+    was_training = model.training
     model.eval()
-    device = next(model.parameters()).device  # Get device from model
+    model.zero_grad()
 
-    # TODO: can we use the create_data_loaders function with the only_positives flag?
-    dataloader = DataLoader(
-        dataset, batch_size=32, shuffle=False, num_workers=num_workers
-    )
-    os.makedirs(save_dir, exist_ok=True)
+    model = model.to(device)
 
-    total_count = 0
-    neg_count = 0
+    try:
+        dataloader = create_class_dataloader(
+            data_dir=data_dir,
+            transform=transform,
+            target_class=target_class,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            dataset_type="adversarial_erasing",
+            shuffle=False,
+        )
+        os.makedirs(save_dir, exist_ok=True)
 
-    with torch.no_grad():
-        # TODO: remove enumerate and batch_idx
-        # TODO: fix progress bar
-        for batch_idx, (images, labels, img_paths) in enumerate(
-            tqdm(dataloader, desc="Generating Heatmaps")
-        ):
-            images = images.to(device)
+        count = 0
+        neg_count = 0
 
-            for i, (image, label, img_path) in enumerate(
-                zip(images, labels, img_paths)
+        with torch.no_grad():
+            # Loop through batches
+            for batch_idx, (images, labels, img_paths) in enumerate(
+                tqdm(dataloader, desc="Generating Heatmaps")
             ):
-                if label.item() == 1:
-                    total_count += 1
+                images = images.to(device)
+
+                # Loop through images in batch
+                for i, (image, label, img_path) in enumerate(
+                    zip(images, labels, img_paths)
+                ):
+                    assert (
+                        label == 1
+                    ), "Expected label to be 1 for adversarial erasing task"
+                    count += 1
                     img = image.unsqueeze(0)
 
-                    if current_iteration > 0:
+                    if iteration > 0:
                         accumulated_heatmap = load_accumulated_heatmap(
-                            base_heatmaps_dir, img_path, label, current_iteration - 1
+                            base_heatmaps_dir,
+                            img_path,
+                            label,
+                            iteration - 1,
                         )
 
                         img = erase_region_using_heatmap(
@@ -129,17 +158,13 @@ def generate_and_save_heatmaps(
                         # )
 
                     # heatmap = gradcam.generate_heatmap(img, target_class=1)
-                    # TODO: why is model not already on cuda????
-                    model = model.to("cuda")
                     heatmap = gradcam.generate_super_heatmap(
-                        model.model,
+                        model,
                         img,
                         target_size=(512, 512),
                         sizes=[512, 512 * 2, 512 * 3],
                         target_class=1,
-                        device=model.device,
                     )
-                    print(model.device)
                     # mask = captum_hurricane_occlusion(
                     #     x=img,
                     #     classifier=model.model,
@@ -153,8 +178,8 @@ def generate_and_save_heatmaps(
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
 
-                    # TODO: make this better
-                    if batch_idx == 40 or batch_idx == 41:
+                    # Log heatmap and image overlay to Neptune, just for batch 0
+                    if batch_idx == 0:
                         logger.log_tensor_img(img_overlay, name=f"heatmap_{img_path}")
 
                     # resize image to training size in order to do inference
@@ -165,7 +190,7 @@ def generate_and_save_heatmaps(
                     # do inference and if pred is negative generate transparent heatmap
                     pred = torch.argmax(model(img)).item()
                     if pred == 0:
-                        print(f"Iteration: {current_iteration}. Negative: {img_path}")
+                        print(f"Iteration: {iteration}. Negative: {img_path}")
                         neg_count += 1
                         heatmap = torch.zeros_like(heatmap)
 
@@ -176,4 +201,8 @@ def generate_and_save_heatmaps(
                     )
                     torch.save(heatmap, heatmap_filename)
 
-    print(f"Negative count: {neg_count}. Total: {total_count}")
+        print(f"Count: {count}, Negative Count: {neg_count}")
+
+    finally:
+        if was_training:
+            model.train()

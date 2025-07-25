@@ -30,22 +30,24 @@ class TrainSetup:
 
 
 def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
+    device = cfg.hardware.device
 
     ## LOGGER ##
     neptune_logger = create_neptune_logger(cfg.neptune.project, cfg.neptune.api_key)
 
     ## TORCH MODEL ##
-    torch_model = torch_model_getter(cfg.torch_model, cfg.num_classes)
+    torch_model = torch_model_getter(cfg.torch_model, cfg.num_classes, device=device)
 
     ## DATA LOADERS ##
     aug_config = to_aug_config(cfg.transforms)
     train_loader, val_loader, _ = create_data_loaders(
-        cfg.data_dir,
+        cfg.data.directory,
         batch_size=cfg.batch_size,
         num_workers=cfg.num_workers,
         transform_train=to_compose(aug_config, cfg.mode.train_data_transform),
         transform_val=to_compose(aug_config, "val"),
         dataset_type=cfg.mode.dataset_type,
+        pin_memory=True if device == "cuda" else False,
     )
 
     ## LOSS AND OPTIMIZER ##
@@ -111,6 +113,7 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
             criterion=criterion,
             optimizer_config=optimizer_config,
             model_config=model_config,
+            device=device,
         )
     else:
         raise ValueError(f"Lightning model '{lightning_model_name}' not supported.")

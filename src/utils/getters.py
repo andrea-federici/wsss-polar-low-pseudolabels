@@ -6,10 +6,12 @@ from torch.optim.lr_scheduler import LRScheduler, ReduceLROnPlateau
 from src.models.configs import AdversarialErasingBaseConfig, BaseConfig
 from src.models.lightning_wrappers import AdversarialErasingModel, BaseModel
 from src.models.torch import Xception
-from src.utils.constants import ADVERSARIAL_ERASING, BASE
+from src.utils.constants import ADVERSARIAL_ERASING_MODEL, BASE_MODEL
 
 
-def torch_model_getter(model_name: str, num_classes) -> nn.Module:
+def torch_model_getter(
+    model_name: str, num_classes: int, *, device: str = "cpu"
+) -> nn.Module:
     models = {
         "xception": Xception(num_classes=num_classes),
     }
@@ -17,7 +19,8 @@ def torch_model_getter(model_name: str, num_classes) -> nn.Module:
         raise ValueError(
             f"Invalid model name: {model_name}. Available options: {list(models.keys())}"
         )
-    return models[model_name]
+    model = models[model_name].to(device)
+    return model
 
 
 def lightning_model_getter(
@@ -27,13 +30,14 @@ def lightning_model_getter(
     criterion: nn.Module,
     optimizer_config: dict,
     model_config: BaseConfig = None,
+    device: str = "cpu",
 ) -> LightningModule:
-    if lightning_model_name == BASE:
-        return BaseModel(torch_model, criterion, optimizer_config)
-    elif lightning_model_name == ADVERSARIAL_ERASING:
+    if lightning_model_name == BASE_MODEL:
+        return BaseModel(torch_model, criterion, optimizer_config).to(device)
+    elif lightning_model_name == ADVERSARIAL_ERASING_MODEL:
         if not isinstance(model_config, AdversarialErasingBaseConfig):
             raise TypeError(
-                f"Mode '{ADVERSARIAL_ERASING}' requires an adversarial erasing "
+                f"Mode '{ADVERSARIAL_ERASING_MODEL}' requires an adversarial erasing "
                 "configuration."
             )
         return AdversarialErasingModel(
@@ -41,11 +45,11 @@ def lightning_model_getter(
             criterion=criterion,
             optimizer_config=optimizer_config,
             adver_config=model_config,
-        )
+        ).to(device)
     else:
         raise ValueError(
             f"Invalid lightning model name: {lightning_model_name}. "
-            f"Available options: ['{BASE}', '{ADVERSARIAL_ERASING}']"
+            f"Available options: ['{BASE_MODEL}', '{ADVERSARIAL_ERASING_MODEL}']"
         )
 
 

@@ -1,6 +1,0 @@
-name: max_translations
-dataset_type: max_translations
-train_data_transform: val
-
-max_epochs: 10
-learning_rate: 1e-5
