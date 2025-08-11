@@ -27,9 +27,6 @@ from src.utils.neptune_utils import NeptuneLogger
 
 
 def run(cfg: DictConfig) -> None:
-    # TODO: Load generate_and_save function using a getter, given name from config
-    # TODO: add possibility for hot start given initial checkpoint?
-
     for iteration in range(0, cfg.mode.train_config.max_iterations):
         ts = get_train_setup(cfg, iteration=iteration)
 
@@ -54,14 +51,14 @@ def run(cfg: DictConfig) -> None:
         # Generate new heatmaps for next iteration
         heatmap_load_transform = aug.to_compose(
             aug.AugConfig(
-                resize_width=cfg.data.original_width,  # Full resolution
-                resize_height=cfg.data.original_height,
+                resize_width=cfg.data.original_width,  # Remember to use original size
+                resize_height=cfg.data.original_height,  # Same as above
                 mean=cfg.transforms.normalization.mean,
                 std=cfg.transforms.normalization.std,
             ),
             "val",
         )
-        generate_and_save_heatmaps(
+        _generate_and_save_heatmaps(
             lightning_model.model,
             data_dir=os.path.join(cfg.data.directory, "train"),
             transform=heatmap_load_transform,
@@ -79,7 +76,7 @@ def run(cfg: DictConfig) -> None:
         logger.experiment.stop()
 
 
-def generate_and_save_heatmaps(
+def _generate_and_save_heatmaps(
     model: torch.nn.Module,
     *,
     data_dir: str,
@@ -171,7 +168,7 @@ def generate_and_save_heatmaps(
                         img, size=(480, 480), mode="bilinear", align_corners=False
                     )
 
-                    # do inference and if pred is negative generate transparent heatmap
+                    # Generate transparent heatmap if prediction is negative
                     if pred == 0:
                         print(f"Iteration: {iteration}. Negative: {img_path}")
                         neg_count += 1
@@ -198,7 +195,7 @@ def _save_heatmap(
 
     Args:
         heatmap (torch.Tensor): The heatmap tensor to save. The heatmap is expected to
-            be normalized in the range [0, 1].
+            be of shape (H, W), normalized in the range [0, 1].
         save_dir (str): Directory where the heatmap will be saved.
         img_name (str): Name of the image to which the heatmap corresponds.
         pred (int): The predicted class for the image. It will be appended to the .png
@@ -206,15 +203,12 @@ def _save_heatmap(
 
     Returns:
         None
-
-    Raises:
-        AssertionError: If the heatmap is not a 2D tensor.
-        AssertionError: If the heatmap values are not in the range [0, 1].
     """
     assert heatmap.dim() == 2, "Heatmap must be a 2D tensor."
     assert (
         heatmap.min() >= 0 and heatmap.max() <= 1
     ), "Heatmap tensor must be normalized in the range [0, 1]."
+    assert os.path.isdir(save_dir), f"Save directory {save_dir} does not exist."
 
     # Ensure the save directory exists
     os.makedirs(save_dir, exist_ok=True)

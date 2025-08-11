@@ -16,7 +16,9 @@ from src.data.image_processing import (
 
 class NegativeLoadStrategy(Enum):
     RANDOM = "random"
-    FIRST_SIX = "first_six"
+    PL_SPECIFIC = "pl_specific"  # Specific to the naming convention used in the polar
+    # lows project, where the first 6 characters of the image name can be used to load
+    # a negative sample corresponding to a positive image.
 
     @classmethod
     def list(cls) -> list[str]:
@@ -29,14 +31,26 @@ class BaseEraseStrategy(ABC):
     fill_color: float
     negative_load_strategy: NegativeLoadStrategy = NegativeLoadStrategy.RANDOM
 
-    # TODO: what if the user passes in a string that is not a valid strategy?
     def __post_init__(self):
-        # if it was passed in as a string, convert it
+        raw = self.negative_load_strategy
+
+        # Ensure that the negative load strategy is a valid enum value. Note that we
+        # don't need to check for the case where it's already an instance of
+        # NegativeLoadStrategy, since it can only be set to one of the enum values.
+        if isinstance(raw, str) and raw.lower() not in NegativeLoadStrategy.list():
+            raise ValueError(
+                f"Invalid negative load strategy: '{raw}'. "
+                f"Must be one of {NegativeLoadStrategy.list()}."
+            )
+
+        # If a string is passed, convert it to the corresponding enum value
         strat = (
-            NegativeLoadStrategy(self.negative_load_strategy)
+            NegativeLoadStrategy(raw.lower())
             if isinstance(self.negative_load_strategy, str)
             else self.negative_load_strategy
         )
+
+        # Use object.__setattr__ to set the frozen dataclass attribute
         object.__setattr__(self, "negative_load_strategy", strat)
 
     @abstractmethod
