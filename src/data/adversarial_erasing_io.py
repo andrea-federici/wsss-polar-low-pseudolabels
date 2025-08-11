@@ -219,13 +219,8 @@ def load_accumulated_heatmap(
         )
 
     # Iterate from 0 to iteration (inclusive) to accumulate heatmaps.
-    debug = True
     for it in range(iteration + 1):
         if label == 1:  # Positive sample: use its own heatmap
-            if debug:
-                print(
-                    f"Positive sample: {img_name}. Iteration {iteration}. Loading corresponding heatmap."
-                )
             heatmap = load_tensor(base_heatmaps_dir, it, img_name)
         else:  # Negative sample: load the matching heatmap
             if negative_load_strategy not in NegativeLoadStrategy.list():
@@ -234,18 +229,8 @@ def load_accumulated_heatmap(
                     f"Must be one of {NegativeLoadStrategy.list()}."
                 )
             if negative_load_strategy == NegativeLoadStrategy.RANDOM.value:
-                if debug:
-                    print(
-                        f"Negative sample: {img_name}. Iteration {iteration}. "
-                        "Loading random heatmap."
-                    )
                 heatmap = load_tensor(base_heatmaps_dir, it, random_img_name)
             elif negative_load_strategy == NegativeLoadStrategy.PL_SPECIFIC.value:
-                if debug:
-                    print(
-                        f"Negative sample: {img_name}. Iteration {iteration}. "
-                        "Loading matching heatmap based on prefix."
-                    )
                 heatmap = load_matching_tensor(base_heatmaps_dir, it, img_name[:6])
 
         accumulated_heatmap += heatmap

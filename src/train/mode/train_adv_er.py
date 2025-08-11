@@ -151,7 +151,7 @@ def _generate_and_save_heatmaps(
                         model,
                         img,
                         target_size=target_size,
-                        super_sizes=super_sizes,
+                        sizes=super_sizes,
                         target_class=1,
                     )
 

@@ -1,12 +1,12 @@
 import os
+from collections import Counter
 
 import numpy as np
-from sklearn.model_selection import StratifiedShuffleSplit
 import torch
-from torch.utils.data import Dataset, Subset, DataLoader
-from torchvision import transforms
-from collections import Counter
 from PIL import Image
+from sklearn.model_selection import StratifiedShuffleSplit
+from torch.utils.data import DataLoader, Dataset, Subset
+from torchvision import transforms
 
 
 def dataset_stratified_shuffle_split(
@@ -98,7 +98,7 @@ def dataset_calculate_class_weights(dataset: Dataset, train_indices: list[int]) 
     return class_weights
 
 
-# TODO: check that this works properly and format it well
+# TODO: check that this works properly and format it well. Also, add option to ignore black pixels.
 def compute_dataset_mean_std(dataset, batch_size=64):
     """
     Compute the dataset mean and standard deviation while ignoring black pixels.
