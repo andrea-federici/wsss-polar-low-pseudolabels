@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import Union
+from typing import List, Tuple, Union
 
 import matplotlib.pyplot as plt
 import torch
@@ -65,6 +65,8 @@ def run(cfg: DictConfig) -> None:
             base_heatmaps_dir=heatmaps_config.base_directory,
             iteration=iteration,
             save_dir=current_heatmaps_dir,
+            target_size=(cfg.transforms.resize_height, cfg.transforms.resize_width),
+            super_sizes=heatmaps_config.super_sizes,
             threshold=heatmaps_config.threshold,
             fill_color=heatmaps_config.fill_color,
             logger=logger,
@@ -76,6 +78,9 @@ def run(cfg: DictConfig) -> None:
         logger.experiment.stop()
 
 
+# TODO: while the entire adversarial erasing pipeline is flexible and can be used with
+# either heatmap-based or mask-based erasing, the current implementation of this function
+# only supports heatmap-based erasing. Mask-based erasing is not implemented yet.
 def _generate_and_save_heatmaps(
     model: torch.nn.Module,
     *,
@@ -84,6 +89,8 @@ def _generate_and_save_heatmaps(
     base_heatmaps_dir: str,
     iteration: int,
     save_dir: str,
+    target_size: Tuple[int, int],  # (H, W)
+    super_sizes: List[int],
     threshold: float,
     fill_color: Union[int, float],
     logger: NeptuneLogger,
@@ -124,9 +131,7 @@ def _generate_and_save_heatmaps(
                 for i, (image, label, img_path) in enumerate(
                     zip(images, labels, img_paths)
                 ):
-                    assert (
-                        label == 1
-                    ), "Expected label to be 1 for adversarial erasing task"
+                    assert label == 1, "Label should be 1 here."
                     count += 1
                     img = image.unsqueeze(0)
 
@@ -142,14 +147,11 @@ def _generate_and_save_heatmaps(
                             img, accumulated_heatmap, threshold, fill_color
                         )
 
-                    # heatmap = gradcam.generate_heatmap(model, img, target_class=1)
                     heatmap = gradcam.generate_super_heatmap(
                         model,
                         img,
-                        # target_size=(512, 512),
-                        # sizes=[512, 512 * 2, 512 * 3],
-                        target_size=(480, 480),
-                        sizes=[480, 544],
+                        target_size=target_size,
+                        super_sizes=super_sizes,
                         target_class=1,
                     )
 
@@ -160,12 +162,12 @@ def _generate_and_save_heatmaps(
                     # Log heatmap and image overlay to Neptune, just for batch 0
                     if batch_idx == 0:
                         logger.log_tensor_img(
-                            img_overlay, name=f"heatmap_{img_path}_{pred}"
+                            img_overlay, name=f"heatmap_{img_path}_pred_{pred}"
                         )
 
-                    # resize image to training size in order to do inference
+                    # Resize image to training size in order to do inference
                     img = F.interpolate(
-                        img, size=(480, 480), mode="bilinear", align_corners=False
+                        img, size=target_size, mode="bilinear", align_corners=False
                     )
 
                     # Generate transparent heatmap if prediction is negative

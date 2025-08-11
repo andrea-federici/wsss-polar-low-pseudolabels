@@ -5,6 +5,7 @@ defaults:
 train_config:
   heatmaps:
     negative_load_strategy: random
+    super_sizes: [480, 544]
   aug:
       translate_frac: 0.1  # Same for both x and y
       degrees: 15  # Rotation in degrees
