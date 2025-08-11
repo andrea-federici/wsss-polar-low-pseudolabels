@@ -8,6 +8,8 @@ class Xception(nn.Module):
         super(Xception, self).__init__()
 
         # Feature Extractor
+        # When pretrained=True, pretrained ImageNet-1K weights are loaded, as specified
+        # here: https://huggingface.co/docs/timm/reference/models
         self.feature_extractor = timm.create_model(
             "legacy_xception", pretrained=True, features_only=True
         )

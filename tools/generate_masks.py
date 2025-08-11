@@ -16,20 +16,21 @@ from src.data.adversarial_erasing_io import (
 from src.utils.constants import PYTORCH_EXTENSION
 
 
+# TODO: this does not work really well if there are black pixels next to black patch (hurricane center usually)
 def get_blind_spot_mask(orig_img_path: str, low_thresh: int = 10) -> np.ndarray:
     """
     Reads an RGB (or RGBA) image from `orig_img_path` and returns a 2D boolean array
-    of shape (H, W), where True = pixel belongs to a border‐connected black patch
+    of shape (H, W), where True = pixel belongs to a border-connected black patch
     (“blind spot”), and False = pixel is “good data.”
 
     A pixel is considered “black” if all channels R,G,B are <= low_thresh.
-    We then flood‐fill from any black pixel on the image’s boundary, collecting
-    all 8‐connected black pixels. This way, any black patch that does *not* touch
-    the border is ignored (so small dark cloud holes won’t be removed).
+    We then flood-fill from any black pixel on the image's boundary, collecting
+    all 8-connected black pixels. This way, any black patch that does *not* touch
+    the border is ignored (so small dark cloud holes won't be removed).
 
     Args:
         orig_img_path (str):
-            Path to the PNG/JPEG satellite image. If RGBA‐encoded, the alpha is dropped.
+            Path to the PNG/JPEG satellite image. If RGBA-encoded, the alpha is dropped.
         low_thresh (int, optional):
             All pixels whose R, G, and B channels are ≤ low_thresh will be considered
             “black.” Defaults to 10.
@@ -294,21 +295,37 @@ def generate_negative_masks(
 if __name__ == "__main__":
     base_heatmaps_dir = "out/heatmaps"
     mask_dir = "out/masks"
-    mask_size = (512, 512)
+    mask_size = (480, 480)
     threshold = 0.7
-    iteration = 6
+    iteration = 3
 
+    # vis
     generate_masks(
         base_heatmaps_dir=base_heatmaps_dir,
-        mask_dir=mask_dir,
+        mask_dir=mask_dir + "/vis",
         mask_size=mask_size,
         threshold=threshold,
         type="multiclass",
         iteration=iteration,
-        remove_background=True,
+        remove_background=False,
+        vis=True,
+    )
+
+    # no vis
+    no_vis_dir = mask_dir + "/no_vis"
+    generate_masks(
+        base_heatmaps_dir=base_heatmaps_dir,
+        mask_dir=no_vis_dir,
+        mask_size=mask_size,
+        threshold=threshold,
+        type="multiclass",
+        iteration=iteration,
+        remove_background=False,
         vis=False,
     )
 
     generate_negative_masks(
-        negative_images_dir="data/train/neg", mask_dir=mask_dir, mask_size=mask_size
+        negative_images_dir="cancer_data/train/neg",
+        mask_dir=no_vis_dir,
+        mask_size=mask_size,
     )

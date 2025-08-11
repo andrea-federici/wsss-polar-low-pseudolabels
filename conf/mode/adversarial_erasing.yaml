@@ -11,6 +11,7 @@ train_config:
     base_directory: out/heatmaps
     threshold: 0.7
     fill_color: 0
+    negative_load_strategy: first_six
   aug:
     translate_frac: 0.35  # Same for both x and y
     degrees: 20  # Rotation in degrees

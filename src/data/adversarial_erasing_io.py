@@ -1,5 +1,6 @@
 import os
 import random
+from typing import Union
 
 import torch
 
@@ -49,7 +50,9 @@ def load_tensor(base_dir: str, iteration: int, img_name: str) -> torch.Tensor:
     return torch.load(tensor_path)
 
 
-def pick_random_tensor(base_dir: str, iteration: int) -> torch.Tensor:
+def pick_random_tensor(
+    base_dir: str, iteration: int, return_path: bool = False
+) -> Union[torch.Tensor, str]:
     """
     Load a random .pt tensor from a specified iteration folder.
 
@@ -61,9 +64,13 @@ def pick_random_tensor(base_dir: str, iteration: int) -> torch.Tensor:
     Args:
         base_dir (str): Root directory containing iteration subfolders.
         iteration (int): Non-negative index of the iteration folder to sample from.
+        return_path (bool, optional): If True, return the file path of the selected
+            tensor instead of loading it. Defaults to False.
 
     Returns:
-        torch.Tensor: A randomly selected tensor. Convert to .bool() for masks if needed.
+        torch.Tensor or str
+            - If `return_path=False`, returns the loaded torch.Tensor.
+            - If `return_path=True`, returns the filesystem path (str) of the chosen .pt file.
 
     Raises:
         AssertionError: If `iteration` is negative.
@@ -90,7 +97,9 @@ def pick_random_tensor(base_dir: str, iteration: int) -> torch.Tensor:
     if not tensor_files:
         raise FileNotFoundError(f"No .pt files found in: {iteration_folder}")
 
-    return torch.load(random.choice(tensor_files))
+    tensor_path = random.choice(tensor_files)
+
+    return tensor_path if return_path else torch.load(tensor_path)
 
 
 def load_matching_tensor(
@@ -147,8 +156,13 @@ def load_matching_tensor(
     return torch.load(first_match)
 
 
+# TODO: negative_load_strategy should be of type NegativeLoadStrategy, but that means I can't lazy import, and then I have circular dependency issues.
 def load_accumulated_heatmap(
-    base_heatmaps_dir: str, img_name: str, label: int, iteration: int
+    base_heatmaps_dir: str,
+    img_name: str,
+    label: int,
+    iteration: int,
+    negative_load_strategy: str = "random",
 ) -> torch.Tensor:
     """
     Load and accumulate heatmaps over multiple iterations for a given image and label.
@@ -174,8 +188,16 @@ def load_accumulated_heatmap(
         AssertionError: If the iteration is negative or if the label is not 0 or 1.
         FileNotFoundError: If a required heatmap file is missing.
     """
+    # Lazy import to avoid circular dependencies
+    from src.models.erase_strategies import NegativeLoadStrategy
+
     assert iteration >= 0, "Iteration must be greater than or equal to 0"
     assert label in [0, 1], "Label must be either 0 or 1 (negative or positive)"
+
+    assert negative_load_strategy in NegativeLoadStrategy.list(), (
+        f"Negative load strategy must be one of {NegativeLoadStrategy.list()}, "
+        f"got: {negative_load_strategy}"
+    )
 
     # Load a reference heatmap to get the proper shape.
     reference_heatmap = pick_random_tensor(base_heatmaps_dir, 0)
@@ -183,12 +205,22 @@ def load_accumulated_heatmap(
     # Initialize an all-zeros tensor for heatmap accumulation.
     accumulated_heatmap = torch.zeros_like(reference_heatmap, dtype=torch.float32)
 
+    if negative_load_strategy == NegativeLoadStrategy.RANDOM.value and label == 0:
+        random_img_name = pick_random_tensor(
+            base_heatmaps_dir, iteration=0, return_path=True
+        )
+
     # Iterate from 0 to iteration (inclusive) to accumulate heatmaps.
     for it in range(iteration + 1):
         if label == 1:  # Positive sample: use its own heatmap
             heatmap = load_tensor(base_heatmaps_dir, it, img_name)
         else:  # Negative sample: load the matching heatmap
-            heatmap = load_matching_tensor(base_heatmaps_dir, it, img_name[:6])
+            if negative_load_strategy == NegativeLoadStrategy.RANDOM.value:
+                heatmap = load_tensor(base_heatmaps_dir, it, random_img_name)
+            elif negative_load_strategy == NegativeLoadStrategy.FIRST_SIX.value:
+                heatmap = load_matching_tensor(base_heatmaps_dir, it, img_name[:6])
+            else:
+                assert False, "Should not reach here"
 
         accumulated_heatmap += heatmap
 
@@ -198,8 +230,12 @@ def load_accumulated_heatmap(
     return accumulated_heatmap
 
 
+# TODO: implement support for NegativeLoadStrategy
 def load_accumulated_mask(
-    base_masks_dir: str, img_name: str, label: int, iteration: int
+    base_masks_dir: str,
+    img_name: str,
+    label: int,
+    iteration: int,
 ) -> torch.Tensor:
     """
     Load and accumulate binary masks over multiple iterations for a given image and label.

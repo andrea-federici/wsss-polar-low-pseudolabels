@@ -74,8 +74,13 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
     ## LIGHTNING MODEL ##
     lightning_model_name = cfg.mode.lightning_model
     if lightning_model_name == "base":
-        # TODO: implement this
-        pass
+        lightning_model = lightning_model_getter(
+            lightning_model_name,
+            torch_model,
+            criterion=criterion,
+            optimizer_config=optimizer_config,
+            device=device,
+        )
     elif lightning_model_name == "adversarial_erasing":
         if iteration is None:
             raise ValueError(
@@ -87,6 +92,7 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
                 fill_color=heatmaps_config.fill_color,
                 base_dir=heatmaps_config.base_directory,
                 heatmap_threshold=heatmaps_config.threshold,
+                negative_load_strategy=heatmaps_config.negative_load_strategy,
             )
             model_config = AdversarialErasingBaseConfig(
                 iteration=iteration,
@@ -97,6 +103,7 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
             mask_erase_strategy = MaskEraseStrategy(
                 base_dir=cfg.mode.train_config.heatmaps.base_directory,
                 fill_color=cfg.mode.train_config.heatmaps.fill_color,
+                negative_load_strategy=cfg.mode.train_config.heatmaps.negative_load_strategy,
             )
             model_config = AdversarialErasingBaseConfig(
                 iteration=iteration,
@@ -108,7 +115,7 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
                 f"Adversarial erasing strategy '{cfg.mode.erase_strategy}' not supported."
             )
         lightning_model = lightning_model_getter(
-            cfg.mode.lightning_model,
+            lightning_model_name,
             torch_model,
             criterion=criterion,
             optimizer_config=optimizer_config,

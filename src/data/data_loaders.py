@@ -135,9 +135,9 @@ def create_data_loaders(
             collate_fn=collate_fn,
         )
 
-    train_loader = make_loader(train_data, sampler=sampler)
-    val_loader = make_loader(val_data, shuffle=False)
-    test_loader = make_loader(test_data, shuffle=False)
+    train_loader = make_loader(train_data, sampler=sampler, shuffle=None)
+    val_loader = make_loader(val_data, sampler=None, shuffle=False)
+    test_loader = make_loader(test_data, sampler=None, shuffle=False)
 
     return train_loader, val_loader, test_loader
 

@@ -157,12 +157,14 @@ def generate_and_save_heatmaps(
                         #     fill_color=fill_color,
                         # )
 
-                    # heatmap = gradcam.generate_heatmap(img, target_class=1)
+                    # heatmap = gradcam.generate_heatmap(model, img, target_class=1)
                     heatmap = gradcam.generate_super_heatmap(
                         model,
                         img,
-                        target_size=(512, 512),
-                        sizes=[512, 512 * 2, 512 * 3],
+                        # target_size=(512, 512),
+                        # sizes=[512, 512 * 2, 512 * 3],
+                        target_size=(480, 480),
+                        sizes=[480, 544],
                         target_class=1,
                     )
                     # mask = captum_hurricane_occlusion(
@@ -178,17 +180,20 @@ def generate_and_save_heatmaps(
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
 
+                    pred = torch.argmax(model(img)).item()
+
                     # Log heatmap and image overlay to Neptune, just for batch 0
                     if batch_idx == 0:
-                        logger.log_tensor_img(img_overlay, name=f"heatmap_{img_path}")
+                        logger.log_tensor_img(
+                            img_overlay, name=f"heatmap_{img_path}_{pred}"
+                        )
 
                     # resize image to training size in order to do inference
                     img = F.interpolate(
-                        img, size=(512, 512), mode="bilinear", align_corners=False
+                        img, size=(480, 480), mode="bilinear", align_corners=False
                     )
 
                     # do inference and if pred is negative generate transparent heatmap
-                    pred = torch.argmax(model(img)).item()
                     if pred == 0:
                         print(f"Iteration: {iteration}. Negative: {img_path}")
                         neg_count += 1
