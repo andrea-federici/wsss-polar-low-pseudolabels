@@ -1,3 +1,3 @@
 defaults:
   - defaults
-  - mode: single
+  - mode: adversarial_erasing

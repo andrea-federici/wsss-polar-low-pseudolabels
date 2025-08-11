@@ -11,7 +11,7 @@ neptune:
 
 ## DATA ##
 data:
-  directory: data
+  directory: data/polar_lows
   original_width: 800
   original_height: 800
 

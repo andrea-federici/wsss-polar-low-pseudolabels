@@ -17,8 +17,6 @@ __pycache__/
 /archive
 
 # Data files
-/cancer_data
-/cancer_data_no_normal
 /data
 
 # Colab files

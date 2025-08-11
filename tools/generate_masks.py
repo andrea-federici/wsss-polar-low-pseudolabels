@@ -15,6 +15,9 @@ from src.data.adversarial_erasing_io import (
 )
 from src.utils.constants import PYTORCH_EXTENSION
 
+# TODO: move file to src
+# TODO: at the end of the adversarial erasing pipeline, generate masks automatically
+
 
 # TODO: this does not work really well if there are black pixels next to black patch (hurricane center usually)
 def get_blind_spot_mask(orig_img_path: str, low_thresh: int = 10) -> np.ndarray:

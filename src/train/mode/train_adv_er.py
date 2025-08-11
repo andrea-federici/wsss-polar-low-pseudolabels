@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from typing import Union
 
+import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
@@ -144,19 +145,6 @@ def generate_and_save_heatmaps(
                             img, accumulated_heatmap, threshold, fill_color
                         )
 
-                        # accumulated_mask = load_accumulated_mask(
-                        #     base_masks_dir=base_heatmaps_dir,
-                        #     img_name=img_path,
-                        #     label=label,
-                        #     iteration=current_iteration - 1,
-                        # )
-
-                        # img = erase_region_using_mask(
-                        #     img,
-                        #     accumulated_mask,
-                        #     fill_color=fill_color,
-                        # )
-
                     # heatmap = gradcam.generate_heatmap(model, img, target_class=1)
                     heatmap = gradcam.generate_super_heatmap(
                         model,
@@ -167,16 +155,6 @@ def generate_and_save_heatmaps(
                         sizes=[480, 544],
                         target_class=1,
                     )
-                    # mask = captum_hurricane_occlusion(
-                    #     x=img,
-                    #     classifier=model.model,
-                    #     hurricane_class=1,
-                    #     patch_size=128,
-                    #     stride=32,
-                    #     top_k=32 * 32 * 8,
-                    #     # threshold=0.85,
-                    #     device="cuda",
-                    # )
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
 
@@ -199,15 +177,53 @@ def generate_and_save_heatmaps(
                         neg_count += 1
                         heatmap = torch.zeros_like(heatmap)
 
-                    # Save heatmap as a .pt file
-                    heatmap_filename = os.path.join(
-                        save_dir,
-                        os.path.splitext(os.path.basename(img_path))[0] + ".pt",
-                    )
-                    torch.save(heatmap, heatmap_filename)
+                    # Save heatmap
+                    img_name = os.path.splitext(os.path.basename(img_path))[0]
+                    _save_heatmap(heatmap, save_dir, img_name, pred)
 
         print(f"Count: {count}, Negative Count: {neg_count}")
 
     finally:
         if was_training:
             model.train()
+
+
+def _save_heatmap(
+    heatmap: torch.Tensor, save_dir: str, img_name: str, pred: int
+) -> None:
+    """
+    Save the heatmap to the specified directory in both .pt and .png formats.
+    The .pt file contains the tensor used by the pipeline, while the .png file is just
+    for debugging purposes.
+
+    Args:
+        heatmap (torch.Tensor): The heatmap tensor to save. The heatmap is expected to
+            be normalized in the range [0, 1].
+        save_dir (str): Directory where the heatmap will be saved.
+        img_name (str): Name of the image to which the heatmap corresponds.
+        pred (int): The predicted class for the image. It will be appended to the .png
+            filename for debugging purposes.
+
+    Returns:
+        None
+
+    Raises:
+        AssertionError: If the heatmap is not a 2D tensor.
+        AssertionError: If the heatmap values are not in the range [0, 1].
+    """
+    assert heatmap.dim() == 2, "Heatmap must be a 2D tensor."
+    assert (
+        heatmap.min() >= 0 and heatmap.max() <= 1
+    ), "Heatmap tensor must be normalized in the range [0, 1]."
+
+    # Ensure the save directory exists
+    os.makedirs(save_dir, exist_ok=True)
+
+    # Save .pt file
+    heatmap_filename_pt = os.path.join(save_dir, f"{img_name}.pt")
+    torch.save(heatmap, heatmap_filename_pt)
+
+    # Save .png file, just for debugging purposes
+    heatmap_filename_png = os.path.join(save_dir, f"{img_name}_pred_{pred}.png")
+    heatmap_np = heatmap.detach().cpu().numpy()
+    plt.imsave(heatmap_filename_png, heatmap_np, cmap="jet")

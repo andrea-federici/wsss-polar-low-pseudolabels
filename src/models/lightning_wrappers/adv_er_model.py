@@ -114,15 +114,14 @@ class AdversarialErasingModel(BaseModel):
 
     def _maybe_save_grid(self, images, batch_idx, stage: str, every: int = 10):
         if batch_idx % every == 0:
-            save_dir = f"out/{stage}_debug_images"
+            save_dir = f"out/debug/{stage}"
             os.makedirs(save_dir, exist_ok=True)
-            num_samples = min(len(images), 16)  # Ensure we don't exceed
-            # batch size
+            num_samples = min(len(images), 16)  # Ensure we don't exceed batch size
             sample_grid = make_grid(images[:num_samples], nrow=4, normalize=True)
             save_image(
                 sample_grid,
                 os.path.join(
-                    save_dir, f"it_{self.current_iteration}_batch_{batch_idx}.png"
+                    save_dir, f"iter_{self.current_iteration}_batch_{batch_idx}.png"
                 ),
             )
 
