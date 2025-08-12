@@ -54,6 +54,14 @@ def _get_blind_spot_mask(orig_img_path: str, low_thresh: int = 10) -> np.ndarray
     #    This picks up pure‐black or nearly black areas.
     black_pixels = np.all(orig <= low_thresh, axis=2)  # shape = (H, W), dtype=bool
 
+    # --- Morphological opening to remove thin bridges ---
+    bin_img = (black_pixels.astype(np.uint8)) * 255
+    k = 51  # kernel size (odd number); increase to 5 or 7 for thicker bridge removal
+    kernel = np.ones((k, k), dtype=np.uint8)
+    opened = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
+    black_pixels = opened > 0
+    # ---------------------------------------------------
+
     H, W = black_pixels.shape
 
     # 3) Flood‐fill from any black pixel on the boundary
@@ -299,13 +307,38 @@ def generate_negative_masks(
 
 # In order to run this script, run the following command from the root directory of the
 # project:
-# PYTHONPATH=$(pwd) python3 tools/generate_masks.py
+# PYTHONPATH=$(pwd) python3 src/post/masks.py
 if __name__ == "__main__":
     base_heatmaps_dir = "out/heatmaps"
     mask_dir = "out/masks"
-    mask_size = (480, 480)
+    mask_size = (512, 512)
     threshold = 0.7
-    iteration = 3
+    iteration = 1
+
+    import os
+
+    import cv2
+    import numpy as np
+
+    # Input and output folders
+    in_dir = "out/heatmaps/iteration_0"
+    out_dir = "out/heatmaps/iteration_0"
+    os.makedirs(out_dir, exist_ok=True)
+
+    # Loop over all files in the folder
+    for fname in os.listdir(in_dir):
+        if fname.lower().endswith((".pt")):
+            # Load tensor
+            tensor = torch.load(os.path.join(in_dir, fname))
+
+            # Create all-ones tensor with same shape & dtype
+            ones_tensor = torch.ones_like(tensor)
+
+            # Save with same filename
+            out_path = os.path.join(out_dir, fname)
+            torch.save(ones_tensor, out_path)
+
+            print(f"Saved all-ones heatmap: {out_path}")
 
     # vis
     generate_masks(
@@ -315,7 +348,7 @@ if __name__ == "__main__":
         threshold=threshold,
         type="multiclass",
         iteration=iteration,
-        remove_background=False,
+        remove_background=True,
         vis=True,
     )
 
