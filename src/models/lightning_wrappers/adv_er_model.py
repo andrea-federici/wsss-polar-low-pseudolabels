@@ -112,9 +112,33 @@ class AdversarialErasingModel(BaseModel):
 
         return img
 
+    def _maybe_save_images(
+        self, images, img_paths, batch_idx, stage: str, every: int = 10
+    ):
+        if batch_idx % every == 0:
+            save_dir = f"out/debug/images/{stage}"
+            os.makedirs(save_dir, exist_ok=True)
+            num_samples = min(len(images), 16)
+
+            # Normalize images to [0, 1]
+            mins = images.amin(dim=(1, 2, 3), keepdim=True)
+            maxs = images.amax(dim=(1, 2, 3), keepdim=True)
+            denom = (maxs - mins).clamp_min(1e-6)  # Avoid division by zero
+            norm = (images - mins) / denom
+            norm = norm.clamp(0, 1)  # Ensure values are in [0, 1]
+
+            for i in range(num_samples):
+                save_image(
+                    norm[i],
+                    os.path.join(
+                        save_dir,
+                        f"iter_{self.current_iteration}_batch_{batch_idx}_{img_paths[i]}.png",
+                    ),
+                )
+
     def _maybe_save_grid(self, images, batch_idx, stage: str, every: int = 10):
         if batch_idx % every == 0:
-            save_dir = f"out/debug/{stage}"
+            save_dir = f"out/debug/grids/{stage}"
             os.makedirs(save_dir, exist_ok=True)
             num_samples = min(len(images), 16)  # Ensure we don't exceed batch size
             sample_grid = make_grid(images[:num_samples], nrow=4, normalize=True)
@@ -130,7 +154,12 @@ class AdversarialErasingModel(BaseModel):
         processed_images = self._process_batch(
             images, labels, img_paths, do_augment=True
         )
-        self._maybe_save_grid(processed_images, batch_idx, stage="train", every=20)
+        # Save images and grid only for the first epoch
+        if self.current_epoch == 0:
+            self._maybe_save_images(
+                processed_images, img_paths, batch_idx, stage="train", every=20
+            )
+            self._maybe_save_grid(processed_images, batch_idx, stage="train", every=20)
         loss = super()._process_step("train", processed_images, labels)
         return loss
 
@@ -139,6 +168,10 @@ class AdversarialErasingModel(BaseModel):
         processed_images = self._process_batch(
             images, labels, img_paths, do_augment=False
         )
-        self._maybe_save_grid(processed_images, batch_idx, stage="val", every=20)
+        if self.current_epoch == 0:
+            self._maybe_save_images(
+                processed_images, img_paths, batch_idx, stage="val", every=20
+            )
+            self._maybe_save_grid(processed_images, batch_idx, stage="val", every=20)
         loss = super()._process_step("val", processed_images, labels)
         return loss
