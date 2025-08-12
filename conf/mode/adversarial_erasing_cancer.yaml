@@ -10,3 +10,6 @@ train_config:
       translate_frac: 0.1  # Same for both x and y
       degrees: 15  # Rotation in degrees
       vertical_flip: false
+
+masks:
+  remove_background: false

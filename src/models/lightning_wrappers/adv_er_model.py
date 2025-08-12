@@ -132,7 +132,7 @@ class AdversarialErasingModel(BaseModel):
                     norm[i],
                     os.path.join(
                         save_dir,
-                        f"iter_{self.current_iteration}_batch_{batch_idx}_{img_paths[i]}.png",
+                        f"iter_{self.current_iteration}_batch_{batch_idx}_{img_paths[i].removesuffix(".png")}.png",
                     ),
                 )
 

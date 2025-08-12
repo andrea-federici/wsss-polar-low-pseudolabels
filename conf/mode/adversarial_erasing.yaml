@@ -19,3 +19,7 @@ train_config:
     scale: 0.1  # If set to 0.1, the scale will be [0.9, 1.1]
     horizontal_flip: true
     vertical_flip: true
+
+masks:
+  save_directory: out/masks
+  remove_background: true

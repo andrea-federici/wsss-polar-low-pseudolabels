@@ -15,12 +15,11 @@ from src.data.adversarial_erasing_io import (
 )
 from src.utils.constants import PYTORCH_EXTENSION
 
-# TODO: move file to src
 # TODO: at the end of the adversarial erasing pipeline, generate masks automatically
 
 
 # TODO: this does not work really well if there are black pixels next to black patch (hurricane center usually)
-def get_blind_spot_mask(orig_img_path: str, low_thresh: int = 10) -> np.ndarray:
+def _get_blind_spot_mask(orig_img_path: str, low_thresh: int = 10) -> np.ndarray:
     """
     Reads an RGB (or RGBA) image from `orig_img_path` and returns a 2D boolean array
     of shape (H, W), where True = pixel belongs to a border-connected black patch
@@ -108,6 +107,7 @@ def get_blind_spot_mask(orig_img_path: str, low_thresh: int = 10) -> np.ndarray:
     return blind_mask
 
 
+# TODO: update docstring
 def generate_masks(
     *,
     base_heatmaps_dir: str,
@@ -144,7 +144,10 @@ def generate_masks(
     ]
     print(f"Loaded {len(heatmap_filenames)} heatmaps.")
 
-    for filename in tqdm(heatmap_filenames, desc="Processing multi-label heatmaps"):
+    for filename in tqdm(
+        heatmap_filenames,
+        desc=f"Processing {type} heatmaps, iteration {iteration}, vis={vis}",
+    ):
         # Assume the image name is encoded in the filename (without extension)
         img_name = os.path.splitext(os.path.basename(filename))[0]
         mask_path = os.path.join(mask_dir, f"{img_name}.png")
@@ -208,10 +211,12 @@ def generate_masks(
             # Convert the multi-label mask to a NumPy array.
             mask = resized_heatmap.to(torch.int).cpu().numpy()
 
+            # TODO: this is hard-coded now. It is fine since the only dataset that
+            # uses it is the polar_lows dataset, but the path should still be taken as
+            # argument for clarity purposes.
             if remove_background:
                 possible_paths = [
-                    os.path.join("data/train/pos", f"{img_name}.png"),
-                    os.path.join("data/val/pos", f"{img_name}.png"),
+                    os.path.join("data/polar_lows/train/pos", f"{img_name}.png"),
                 ]
 
                 img_path = None
@@ -229,7 +234,7 @@ def generate_masks(
                 if img is None:
                     raise FileNotFoundError(f"Failed to load image at {img_path}")
 
-                blind_mask = get_blind_spot_mask(img_path, low_thresh=0)
+                blind_mask = _get_blind_spot_mask(img_path, low_thresh=0)
                 # blind_mask is a boolean array of shape (orig_H, orig_W). But we must resize it
                 # (nearest) to the same shape as mask_np, which we already chose to be (mask_H, mask_W).
 
