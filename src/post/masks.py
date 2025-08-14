@@ -56,7 +56,7 @@ def _get_blind_spot_mask(orig_img_path: str, low_thresh: int = 10) -> np.ndarray
 
     # --- Morphological opening to remove thin bridges ---
     bin_img = (black_pixels.astype(np.uint8)) * 255
-    k = 51  # kernel size (odd number); increase to 5 or 7 for thicker bridge removal
+    k = 21  # kernel size (odd number); increase to 5 or 7 for thicker bridge removal
     kernel = np.ones((k, k), dtype=np.uint8)
     opened = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel)
     black_pixels = opened > 0
