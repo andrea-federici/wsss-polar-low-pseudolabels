@@ -6,22 +6,14 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
-from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
 
 import src.attributions.gradcam as gradcam
 import src.data.augmentation as aug
-from src.data.adversarial_erasing_io import (
-    load_accumulated_heatmap,
-    load_accumulated_mask,
-)
-from src.data.custom_datasets import ImageFilenameDataset
+from src.data.adversarial_erasing_io import load_accumulated_heatmap
 from src.data.data_loaders import create_class_dataloader
-from src.data.image_processing import (
-    erase_region_using_heatmap,
-    erase_region_using_mask,
-)
+from src.data.image_processing import erase_region_using_heatmap
 from src.post.masks import generate_masks, generate_negative_masks
 from src.train.setup import get_train_setup
 from src.utils.neptune_utils import NeptuneLogger
@@ -243,18 +235,21 @@ def _generate_and_save_heatmaps(
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
 
-                    pred = torch.argmax(model(img)).item()
+                    img_name = os.path.splitext(os.path.basename(img_path))[0]
+
+                    # Resize image to training size in order to do inference
+                    resized_img = F.interpolate(
+                        img, size=target_size, mode="bilinear", align_corners=False
+                    )
+
+                    # Do inference
+                    pred = torch.argmax(model(resized_img)).item()
 
                     # Log heatmap and image overlay to Neptune, just for batch 0
                     if batch_idx == 0:
                         logger.log_tensor_img(
-                            img_overlay, name=f"heatmap_{img_path}_pred_{pred}"
+                            img_overlay, name=f"heatmap_{img_name}_pred_{pred}"
                         )
-
-                    # Resize image to training size in order to do inference
-                    img = F.interpolate(
-                        img, size=target_size, mode="bilinear", align_corners=False
-                    )
 
                     # Generate transparent heatmap if prediction is negative
                     if pred == 0:
@@ -263,7 +258,6 @@ def _generate_and_save_heatmaps(
                         heatmap = torch.zeros_like(heatmap)
 
                     # Save heatmap
-                    img_name = os.path.splitext(os.path.basename(img_path))[0]
                     _save_heatmap(heatmap, save_dir, img_name, pred)
 
         print(f"Count: {count}, Negative Count: {neg_count}")

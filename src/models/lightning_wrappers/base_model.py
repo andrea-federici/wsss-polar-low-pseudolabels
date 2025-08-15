@@ -12,6 +12,10 @@ class BaseModel(LightningModule):
         self.criterion = criterion  # Loss function
         self.optimizer_config = optimizer_config  # Optimizer configuration
 
+        # This is needed so that we don't need to pass all the hyperparameters when
+        # loading the checkpoint
+        self.save_hyperparameters()
+
         self.train_outputs = []  # Stores training outputs across steps
         self.val_outputs = []  # Stores validation outputs across steps
 

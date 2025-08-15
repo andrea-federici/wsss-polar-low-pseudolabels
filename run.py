@@ -1,5 +1,3 @@
-import sys
-
 import hydra
 import torch
 from dotenv import load_dotenv
