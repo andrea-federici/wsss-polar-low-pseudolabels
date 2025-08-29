@@ -9,13 +9,8 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from src.data.adversarial_erasing_io import (
-    generate_multiclass_mask_from_heatmaps,
-    generate_multiclass_mask_from_masks,
-    load_accumulated_heatmap,
-)
+    generate_multiclass_mask_from_heatmaps, load_accumulated_heatmap)
 from src.utils.constants import PYTORCH_EXTENSION
-
-# TODO: at the end of the adversarial erasing pipeline, generate masks automatically
 
 
 # TODO: this does not work really well if there are black pixels next to black patch (hurricane center usually)

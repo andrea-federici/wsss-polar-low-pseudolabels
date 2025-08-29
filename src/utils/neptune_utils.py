@@ -1,46 +1,11 @@
 import os
-from typing import List, Mapping, Optional, Union
+from typing import Any, List, Mapping, Optional, Union
 
 import numpy as np
 import pandas as pd
-from einops import rearrange
 from lightning.pytorch.loggers import NeptuneLogger as LightningNeptuneLogger
-from torch import Tensor
-from typing import Any, List, Mapping, Optional, Union
-
 from neptune.types import File
-import logging
-
-
-class _FilterCallback(logging.Filterer):
-    def filter(self, record: logging.LogRecord):
-        return not (
-            record.name == "neptune"
-            and record.getMessage().startswith(
-                "Error occurred during asynchronous operation processing: X-coordinates (step) must be strictly increasing for series attribute"
-            )
-        )
-
-
-def save_figure(fig, filename: str, as_html=False, as_pickle=False):
-    if filename.endswith(".html"):
-        as_html = True
-        filename = filename[:-5]
-    elif filename.endswith(".pkl"):
-        as_pickle = True
-        filename = filename[:-4]
-    if not (as_html or as_pickle):
-        as_html = False  # save as html if nothing is specified
-    if as_html:
-        import mpld3
-
-        with open(filename + ".html", "w") as fp:
-            mpld3.save_html(fig, fp)
-    if as_pickle:
-        import pickle
-
-        with open(filename + ".pkl", "wb") as fp:
-            pickle.dump(fig, fp)
+from torch import Tensor
 
 
 def ensure_list(value: Any) -> List:
@@ -204,17 +169,6 @@ class NeptuneLogger(LightningNeptuneLogger):
         df.to_csv(path, index=True, index_label="index")
         self.log_artifact(path, artifact_name=name, delete_after=True)
 
-    def log_figure(self, fig, name: str = "figure"):
-        """Log a matplotlib figure as html.
-
-        Args:
-            fig (Figure): The matplotlib figure to be logged.
-            name (str): The name of the file. (default: :obj:`'figure'`)
-        """
-        path, name = self._artifact_storage_path(name, extension=".html")
-        save_figure(fig, path)
-        self.log_artifact(path, artifact_name=name, delete_after=True)
-
     def log_tensor_img(self, tensor: Union[Tensor, np.array], name: str = "tensor"):
         """
         Log an image represented as a torch Tensor or a Numpy Array
@@ -233,32 +187,3 @@ class NeptuneLogger(LightningNeptuneLogger):
 
         File.as_image(tensor)._save(path)
         self.log_artifact(path, artifact_name=name, delete_after=True)
-
-    # OLD METHODS
-
-    def log_pred_df(self, name, idx, y, yhat, label_y="true", label_yhat="pred"):
-        """Log a csv containing predictions and true values. Only works for
-        univariate timeseries.
-
-        :param name: name of the file
-        :param idx: dataframe idx
-        :param y: true values
-        :param yhat: predictions
-        :param label_y: true values
-        :param label_yhat: predictions
-        :return:
-        """
-        y = rearrange(y, "b ... -> b (...)")
-        yhat = rearrange(yhat, "b ... -> b (...)")
-        if isinstance(label_y, str):
-            label_y = [f"{label_y}_{i}" for i in range(y.shape[1])]
-        if isinstance(label_yhat, str):
-            label_yhat = [f"{label_yhat}_{i}" for i in range(yhat.shape[1])]
-        df = pd.DataFrame(
-            data=np.concatenate([y, yhat], axis=-1),
-            columns=label_y + label_yhat,
-            index=idx,
-        )
-        df.to_csv(name, index=True, index_label="datetime")
-        self.experiment.log_artifact(name)
-        os.remove(name)

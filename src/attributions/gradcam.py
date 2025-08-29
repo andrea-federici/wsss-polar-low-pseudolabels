@@ -1,4 +1,4 @@
-from typing import Sequence, Tuple, Union
+from typing import Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -13,8 +13,8 @@ def generate_heatmap(
     model: torch.nn.Module,
     image: torch.Tensor,
     *,
-    target_class: int = None,
-    layer: torch.nn.Module = None,
+    target_class: Optional[int] = None,
+    layer: Optional[torch.nn.Module] = None,
 ) -> torch.Tensor:
     """
     Generates a Grad-CAM heatmap for a given input image and target class.
@@ -60,6 +60,10 @@ def generate_heatmap(
         if layer is None:
             layer = model.get_last_conv_layer()
 
+        assert (
+            layer is not None
+        ), "No convolutional layer found. Pass `layer` explicitly."
+
         # Initialize GradCAM with the model and the specified layer
         gradcam = LayerGradCam(model, layer)
 
@@ -69,12 +73,13 @@ def generate_heatmap(
         if target_class is None:
             # Get the predicted class for the input image
             logits = model(image)
-            target_class = torch.argmax(logits, dim=1).item()
+            target_class = int(torch.argmax(logits, dim=1).item())
 
         # Compute the GradCAM attributions for the input image
         attr = gradcam.attribute(image, target_class)
 
         # Remove batch dimension and detach from the computation graph
+        assert isinstance(attr, torch.Tensor), "Expected `attr` to be a torch.Tensor"
         attr = attr.squeeze().detach()
 
         # Remove negative values in the heatmap
@@ -98,7 +103,7 @@ def generate_super_heatmap(
     target_size: Tuple[int, int],  # (H, W)
     sizes: Sequence[int],
     target_class: int,
-    layer: torch.nn.Module = None,
+    layer: Optional[torch.nn.Module] = None,
 ) -> torch.Tensor:
     """
     Generates a multi-scale (super) Grad-CAM heatmap by computing Grad-CAM
@@ -109,7 +114,8 @@ def generate_super_heatmap(
         model (torch.nn.Module): The model for which Grad-CAM is computed.
             If `layer` is not provided, the model must implement a
             `get_last_conv_layer()` method.
-        image (torch.Tensor): Input image tensor of shape (1, C, H, W).
+        image (torch.Tensor): Input image tensor of shape (1, C, H, W). Be sure to pass
+            the image at the highest available resolution.
         target_size (Tuple[int, int]): The target (height, width) of the
             final output heatmap.
         sizes (Sequence[int]): A list of integers specifying the spatial
@@ -209,13 +215,13 @@ def overlay_heatmap(
             the blended visualization. Returned on the same device as the input `image`.
 
     Raises:
-        AssertionError: If the heatmap is not 2D.
-        ValueError: If the heatmap contains values outside the range [0, 1].
+        ValueError: If the heatmap is not 2D or if it contains values outside the range [0, 1].
     """
     device = image.device if isinstance(image, torch.Tensor) else "cpu"
 
     # Ensure heatmap is 2D and between 0 and 1
-    assert heatmap.dim() == 2, "Heatmap must be a 2D tensor"
+    if heatmap.ndim != 2:
+        raise ValueError("Heatmap must be a 2D tensor")
     if torch.min(heatmap) < 0 or torch.max(heatmap) > 1:
         raise ValueError("Heatmap values must be between 0 and 1")
 
@@ -223,10 +229,10 @@ def overlay_heatmap(
     img_np = normalize_image_to_range(convert_to_np_array(image), target_range=(0, 255))
 
     # Convert heatmap to Numpy array
-    heatmap = heatmap.detach().cpu().numpy()
+    heatmap_np = heatmap.detach().cpu().numpy()
 
     # Resize the heatmap to match the image size
-    heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
+    heatmap_resized = cv2.resize(heatmap_np, (img_np.shape[1], img_np.shape[0]))
 
     # Convert heatmap from grayscale (1 channel) to RGB (3 channels)
     heatmap_colored = cv2.applyColorMap(
@@ -281,11 +287,11 @@ def generate_and_overlay_bounding_boxes(
             around high-activation regions.
 
     Raises:
-        AssertionError: If the heatmap is not a 2D tensor.
-        ValueError: If the heatmap contains values outside the range [0, 1].
+        ValueError: If the heatmap is not 2D or if it contains values outside the range [0, 1].
 
     """
-    assert heatmap.ndim == 2, "Heatmap must be a 2D tensor or array"
+    if heatmap.ndim != 2:
+        raise ValueError("Heatmap must be a 2D tensor")
     if np.min(heatmap) < 0 or np.max(heatmap) > 1:
         raise ValueError("Heatmap values must be in the range [0, 1]")
 
@@ -294,10 +300,10 @@ def generate_and_overlay_bounding_boxes(
     ).copy()
 
     # Convert heatmap to Numpy array
-    heatmap = heatmap.detach().cpu().numpy()
+    heatmap_np = heatmap.detach().cpu().numpy()
 
     # Resize the heatmap to match the image size
-    heatmap_resized = cv2.resize(heatmap, (img_np.shape[1], img_np.shape[0]))
+    heatmap_resized = cv2.resize(heatmap_np, (img_np.shape[1], img_np.shape[0]))
 
     # Generate binary mask from heatmap
     heatmap_resized = (heatmap_resized * 255).astype(np.uint8)

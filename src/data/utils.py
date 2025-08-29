@@ -1,5 +1,6 @@
 import os
 from collections import Counter
+from typing import Tuple
 
 import numpy as np
 import torch
@@ -98,28 +99,35 @@ def dataset_calculate_class_weights(dataset: Dataset, train_indices: list[int]) 
     return class_weights
 
 
-# TODO: check that this works properly and format it well. Also, add option to ignore black pixels.
-def compute_dataset_mean_std(dataset, batch_size=64):
+def compute_dataset_mean_std(
+    dataset,
+    batch_size: int = 64,
+    num_workers: int = 4,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Compute the dataset mean and standard deviation while ignoring black pixels.
 
     Args:
         dataset (torch.utils.data.Dataset): The dataset of images.
         batch_size (int): The batch size for processing images.
+        num_workers (int): The number of worker threads for data loading.
 
     Returns:
-        tuple: (mean, std) of the dataset, ignoring black pixels.
+        (mean, std): Tuple of torch.Tensors of shape (3,) representing the mean and
+            standard deviation for each channel (R, G, B), computed over non-black pixels.
     """
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+    loader = DataLoader(
+        dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers
+    )
 
     sum_pixels = torch.zeros(3)  # Sum of pixel values per channel
     sum_squares = torch.zeros(3)  # Sum of squared pixel values per channel
     valid_pixel_count = torch.zeros(3)  # Count of non-black pixels per channel
 
     for images, _ in loader:
-        images = images.view(
-            images.shape[0], images.shape[1], -1
-        )  # Flatten (B, C, H*W)
+        B, C, H, W = images.shape
+        # Flatten height and width so that we can index pixels: (B, C, H*W)
+        images = images.view(B, C, -1)
 
         # Identify non-black pixels: sum along channels > 0 (not all zero)
         mask = images.sum(dim=1) > 0  # Shape (B, H*W), True if not black
