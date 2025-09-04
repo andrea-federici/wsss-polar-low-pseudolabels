@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Tuple, Union
+from typing import Dict, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
@@ -60,9 +60,9 @@ def generate_heatmap(
         if layer is None:
             layer = model.get_last_conv_layer()
 
-        assert (
-            layer is not None
-        ), "No convolutional layer found. Pass `layer` explicitly."
+        assert layer is not None, (
+            "No convolutional layer found. Pass `layer` explicitly."
+        )
 
         # Initialize GradCAM with the model and the specified layer
         gradcam = LayerGradCam(model, layer)
@@ -104,7 +104,8 @@ def generate_super_heatmap(
     sizes: Sequence[int],
     target_class: int,
     layer: Optional[torch.nn.Module] = None,
-) -> torch.Tensor:
+    return_intermediates: bool = False,
+) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[int, torch.Tensor]]]:
     """
     Generates a multi-scale (super) Grad-CAM heatmap by computing Grad-CAM
     at multiple input resolutions and averaging the results. The final heatmap
@@ -157,6 +158,7 @@ def generate_super_heatmap(
 
         H, W = target_size
         resized_heatmaps = []
+        intermediates: Dict[int, torch.Tensor] = {}
 
         for s in sizes:
             img_resized = F.interpolate(
@@ -176,6 +178,8 @@ def generate_super_heatmap(
                 .squeeze(0)
             )
             resized_heatmaps.append(heatmap_up)
+            if return_intermediates:
+                intermediates[int(s)] = heatmap_up.detach()
 
         stacked = torch.stack(resized_heatmaps, dim=0)
         mean_heatmap = stacked.mean(dim=0)
@@ -185,6 +189,8 @@ def generate_super_heatmap(
         denom = (hmax - hmin).clamp_min(1e-6)
         super_heatmap = (mean_heatmap - hmin) / denom
 
+        if return_intermediates:
+            return super_heatmap, intermediates
         return super_heatmap
 
     finally:

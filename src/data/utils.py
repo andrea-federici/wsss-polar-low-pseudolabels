@@ -196,15 +196,11 @@ def dataset_print_stats(dataset: Dataset, dataset_name: str = None) -> None:
     # Print dataset statistics
     if dataset_name:
         print(f"'{dataset_name}' dataset:")
-    print(
-        f"\tNumber of samples: {total_count} (neg: {neg_count}, pos: " f"{pos_count})"
-    )
+    print(f"\tNumber of samples: {total_count} (neg: {neg_count}, pos: {pos_count})")
     print(f"\tNumber of classes: {len(classes)}")
     print(f"\tClass names: {classes}")
     print(f"\tClass distribution ratio (pos:neg): {class_ratio:.2f}")
-    print(
-        f"\tClass percentages: {pos_percentage:.2f}% pos, " f"{neg_percentage:.2f}% neg"
-    )
+    print(f"\tClass percentages: {pos_percentage:.2f}% pos, {neg_percentage:.2f}% neg")
     print()
 
 
@@ -293,7 +289,7 @@ def pick_random_image_path(train_dir: str, class_name: str = None) -> str:
 
     # Check if there are any images in the directory
     if not image_files:
-        raise ValueError(f"No images found in the class directory " f"'{class_dir}'.")
+        raise ValueError(f"No images found in the class directory '{class_dir}'.")
 
     # Select and return the random image path
     return os.path.join(class_dir, np.random.choice(image_files))
@@ -334,9 +330,7 @@ def load_and_transform_image(
 
     # Ensure that the transformed image is a Tensor
     if not isinstance(transformed_image, torch.Tensor):
-        raise TypeError(
-            f"Expected a torch.Tensor but got " f"{type(transformed_image)}"
-        )
+        raise TypeError(f"Expected a torch.Tensor but got {type(transformed_image)}")
 
     # Add batch dimension and move to device
     return transformed_image.unsqueeze(0).to(device)

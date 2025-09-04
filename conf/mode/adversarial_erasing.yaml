@@ -6,7 +6,7 @@ erase_strategy: heatmap
 
 ## SPECIFIC TO ADVERSARIAL ERASING ##
 train_config:
-  max_iterations: 15
+  max_iterations: 10
   heatmaps:
     base_directory: out/heatmaps
     threshold: 0.7

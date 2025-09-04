@@ -1,0 +1,20 @@
+defaults:
+    - cancer_config
+
+data:
+  directory: data/bus_final
+  original_width: 856
+  original_height: 856
+
+transforms:
+  resize_width: 512
+  resize_height: 512
+
+  normalization:
+    mean: [0.2458, 0.2572, 0.2814]
+    std: [0.1491, 0.1544, 0.1675]
+
+mode:
+  train_config:
+    heatmaps:
+      super_sizes: [512, 768, 1024]

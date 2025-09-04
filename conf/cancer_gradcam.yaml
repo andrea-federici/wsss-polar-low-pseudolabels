@@ -1,11 +1,6 @@
 defaults:
-  - cancer_config
+  - cancer_standard_adv_er
 
 mode:
   train_config:
     max_iterations: 1
-    heatmaps:
-      super_sizes: ["${transforms.resize_width}"]  # Expecting square images
-  
-  masks:
-    remove_background: false

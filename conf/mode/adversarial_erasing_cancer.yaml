@@ -3,13 +3,15 @@ defaults:
 
 ## SPECIFIC TO ADVERSARIAL ERASING ##
 train_config:
+  max_iterations: 6
   heatmaps:
+    threshold: 0.85
     negative_load_strategy: random
-    super_sizes: [480, 544]
+    super_sizes: [480, 544, 610]
   aug:
-      translate_frac: 0.1  # Same for both x and y
-      degrees: 15  # Rotation in degrees
-      vertical_flip: false
+      translate_frac: 0.25  # Same for both x and y
+      degrees: 25  # Rotation in degrees
+      scale: 0.15
 
 masks:
   remove_background: false

@@ -19,9 +19,6 @@ __pycache__/
 # Data files
 /data
 
-# Colab files
-colab_runner.ipynb
-
 # Output directories
 /out
 /outputs

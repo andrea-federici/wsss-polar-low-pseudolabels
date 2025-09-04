@@ -41,7 +41,7 @@ def run(cfg: DictConfig) -> None:
         lightning_model = ts.lightning_model
 
         logger.experiment["iteration"] = iteration
-        logger.experiment[f"start_time"] = datetime.now().isoformat()
+        logger.experiment["start_time"] = datetime.now().isoformat()
 
         current_heatmaps_dir = os.path.join(base_heatmaps_dir, f"iteration_{iteration}")
         os.makedirs(current_heatmaps_dir, exist_ok=True)
@@ -76,7 +76,7 @@ def run(cfg: DictConfig) -> None:
             device=cfg.hardware.device,
         )
 
-        logger.experiment[f"end_time"] = datetime.now().isoformat()
+        logger.experiment["end_time"] = datetime.now().isoformat()
 
         logger.experiment.stop()
 
@@ -225,12 +225,13 @@ def _generate_and_save_heatmaps(
                             img, accumulated_heatmap, threshold, fill_color
                         )
 
-                    heatmap = gradcam.generate_super_heatmap(
+                    heatmap, intermediates = gradcam.generate_super_heatmap(
                         model,
                         img,
                         target_size=target_size,
                         sizes=super_sizes,
                         target_class=1,
+                        return_intermediates=True,
                     )
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
@@ -250,6 +251,12 @@ def _generate_and_save_heatmaps(
                         logger.log_tensor_img(
                             img_overlay, name=f"heatmap_{img_name}_pred_{pred}"
                         )
+                        for s in sorted(intermediates.keys()):
+                            hm = intermediates[s].unsqueeze(0).unsqueeze(0).cpu()
+                            logger.log_tensor_img(
+                                hm,
+                                name=f"intermediates/heatmap_{img_name}_pred_{pred}_s{s}",
+                            )
 
                     # Generate transparent heatmap if prediction is negative
                     if pred == 0:
@@ -260,7 +267,13 @@ def _generate_and_save_heatmaps(
                     # Save heatmap
                     _save_heatmap(heatmap, save_dir, img_name, pred)
 
-        print(f"Count: {count}, Negative Count: {neg_count}")
+        # TODO: I could group the metrics in a subfolder
+        correct_count = count - neg_count
+        accuracy_pct = 100.0 * correct_count / float(count)
+        logger.experiment["Count"] = count
+        logger.experiment["Negative Count"] = neg_count
+        logger.experiment["Accuracy"] = accuracy_pct
+        print(f"Count: {count}, Negative Count: {neg_count}, Accuracy: {accuracy_pct}")
 
     finally:
         if was_training:
@@ -287,9 +300,9 @@ def _save_heatmap(
         None
     """
     assert heatmap.dim() == 2, "Heatmap must be a 2D tensor."
-    assert (
-        heatmap.min() >= 0 and heatmap.max() <= 1
-    ), "Heatmap tensor must be normalized in the range [0, 1]."
+    assert heatmap.min() >= 0 and heatmap.max() <= 1, (
+        "Heatmap tensor must be normalized in the range [0, 1]."
+    )
     assert os.path.isdir(save_dir), f"Save directory {save_dir} does not exist."
 
     # Ensure the save directory exists

@@ -1,0 +1,10 @@
+defaults:
+  - cancer_config
+
+mode:
+  train_config:
+    heatmaps:
+      super_sizes: ["${transforms.resize_width}"]  # Expecting square images
+  
+  masks:
+    remove_background: false
