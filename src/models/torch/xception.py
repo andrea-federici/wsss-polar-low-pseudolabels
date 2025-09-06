@@ -1,6 +1,5 @@
 import timm
 import torch.nn as nn
-from torchinfo import summary
 
 
 class Xception(nn.Module):
@@ -14,13 +13,19 @@ class Xception(nn.Module):
             "legacy_xception", pretrained=True, features_only=True
         )
 
+        self.feature_dropout = nn.Dropout2d(p=0.1)
+
         # Classifier
         self.classifier = nn.Sequential(
             nn.Linear(in_features=2048, out_features=32),
             nn.BatchNorm1d(32),
             nn.ReLU(inplace=True),
-            nn.Dropout(p=0.2),
-            nn.Linear(in_features=32, out_features=num_classes),
+            nn.Dropout(p=0.5),
+            nn.Linear(32, 16),
+            nn.BatchNorm1d(16),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.5),
+            nn.Linear(16, num_classes),
         )
 
     def forward(self, x):
@@ -28,6 +33,8 @@ class Xception(nn.Module):
 
         # Get the last feature map (self.feature_extractor(x) is a list)
         last_features = x[-1]
+
+        last_features = self.feature_dropout(last_features)
 
         # Global Average Pooling. Input shape: (batch_size, channels, H, W). This layer
         # reduces each feature map by averaging over the spatial dimensions (H, W),

@@ -48,7 +48,7 @@ def generate_heatmap(
         if baseline is None:
             baseline = torch.zeros_like(
                 image
-            )  # Use a black image as the baseline is no baseline is provided
+            )  # Use a black image as the baseline if no baseline is provided
 
         ig = IntegratedGradients(model)
 
@@ -118,14 +118,14 @@ def generate_mask_from_heatmap(
         )
     if image.dim() != 4:
         raise ValueError(
-            f"Expected input_image to be a 4D tensor (B, C, H, W), but got shape "
+            "Expected input_image to be a 4D tensor (B, C, H, W), but got shape "
             "{image.shape}"
         )
 
     heatmap = heatmap.detach().cpu().numpy()
 
     _, _, H, W = image.shape
-    heatmap_resized = cv2.resize(heatmap, (H, W), interpolation=cv2.INTER_LINEAR)
+    heatmap_resized = cv2.resize(heatmap, (W, H), interpolation=cv2.INTER_LINEAR)
 
     # Binarize the heatmap using a threshold calculated based on the percentile
     heatmap_flattened = heatmap_resized.flatten()

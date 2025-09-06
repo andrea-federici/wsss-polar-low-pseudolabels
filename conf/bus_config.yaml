@@ -17,4 +17,4 @@ transforms:
 mode:
   train_config:
     heatmaps:
-      super_sizes: [512, 768, 1024]
+      super_sizes: [512]

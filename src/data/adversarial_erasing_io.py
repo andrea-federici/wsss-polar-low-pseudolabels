@@ -355,7 +355,7 @@ def generate_multiclass_mask_from_heatmaps(
     over time.
 
     Args:
-        base_heatmaps_dir (str): The base directory containing the iteration folders.
+        base_dir (str): The base directory containing the iteration folders.
         img_name (str): The name of the image file (including or excluding extension).
         label (int): The class label (0 for negative, 1 for positive).
         iteration (int): The highest iteration (inclusive) to consider for heatmap

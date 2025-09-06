@@ -1,6 +1,9 @@
 # .env file
 .env
 
+# Notebooks # TODO: make these public after polishing them
+/doc
+
 # Cache and logs
 __pycache__/
 /lightning_logs

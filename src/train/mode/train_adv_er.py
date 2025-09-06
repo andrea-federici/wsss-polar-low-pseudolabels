@@ -244,18 +244,31 @@ def _generate_and_save_heatmaps(
                     )
 
                     # Do inference
-                    pred = torch.argmax(model(resized_img)).item()
+                    logits = model(resized_img)
+                    probs = torch.softmax(logits, dim=1)
+                    pos_prob = probs[0, target_class].item()
+                    pred = torch.argmax(logits).item()
+
+                    # Calculate necessity drop
+                    next_img = erase_region_using_heatmap(
+                        resized_img, heatmap, threshold=threshold, fill_color=fill_color
+                    )
+                    next_logits = model(next_img)[0]
+                    next_pos_logit = next_logits[target_class].item()
+                    drop = logits[0][target_class].item() - next_pos_logit
+
+                    suffix = f"{pred}_{pos_prob:.3f}_{drop:.3f}"
 
                     # Log heatmap and image overlay to Neptune, just for batch 0
                     if batch_idx == 0:
                         logger.log_tensor_img(
-                            img_overlay, name=f"heatmap_{img_name}_pred_{pred}"
+                            img_overlay, name=f"heatmap_{img_name}_{suffix}"
                         )
                         for s in sorted(intermediates.keys()):
                             hm = intermediates[s].unsqueeze(0).unsqueeze(0).cpu()
                             logger.log_tensor_img(
                                 hm,
-                                name=f"intermediates/heatmap_{img_name}_pred_{pred}_s{s}",
+                                name=f"intermediates/heatmap_{img_name}_{s}_{suffix}",
                             )
 
                     # Generate transparent heatmap if prediction is negative

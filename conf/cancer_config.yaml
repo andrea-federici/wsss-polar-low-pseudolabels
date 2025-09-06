@@ -15,5 +15,5 @@ transforms:
     mean: [0.3289, 0.3288, 0.3288]
     std: [0.2201, 0.2201, 0.2201]
 
-learning_rate: 1e-4
+learning_rate: 5e-5
 batch_size: 32
