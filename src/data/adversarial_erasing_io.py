@@ -3,6 +3,7 @@ import random
 from typing import Union
 
 import torch
+import torch.nn.functional as F
 
 from src.utils.constants import ITERATION_FOLDER_PREFIX, PYTORCH_EXTENSION
 
@@ -331,12 +332,46 @@ def load_accumulated_mask(
     return accumulated_mask
 
 
+def _area_targeted_envelope(mask: torch.Tensor, scale: float) -> torch.Tensor:
+    """Dilate ``mask`` by a radius that scales with its current area.
+
+    The radius is computed as ``sqrt(area) * scale`` and rounded to the nearest
+    integer. If the mask is empty, the original mask is returned.
+
+    Args:
+        mask: Binary mask of shape ``(H, W)``.
+        scale: Multiplicative factor for the dilation radius.
+
+    Returns:
+        torch.Tensor: Dilated binary mask of the same shape as ``mask``.
+    """
+
+    area = mask.sum().item()
+    if area == 0:
+        return mask
+
+    radius = max(1, int(round((area ** 0.5) * scale)))
+    kernel = 2 * radius + 1
+
+    # Use max pooling as a fast morphological dilation.
+    dilated = F.max_pool2d(
+        mask.float().unsqueeze(0).unsqueeze(0),
+        kernel_size=kernel,
+        stride=1,
+        padding=radius,
+    )
+    return dilated.squeeze(0).squeeze(0).bool()
+
+
 def generate_multiclass_mask_from_heatmaps(
     base_dir: str,
     img_name: str,
     label: int,
     iteration: int,
     threshold: float,
+    *,
+    envelope_start: int = 2,
+    envelope_scale: float = 0.1,
 ) -> torch.Tensor:
     """
     Generate a multiclass activation mask based on accumulated heatmaps over multiple
@@ -361,6 +396,10 @@ def generate_multiclass_mask_from_heatmaps(
         iteration (int): The highest iteration (inclusive) to consider for heatmap
             accumulation.
         threshold (float): The activation threshold for binarizing the heatmap.
+        envelope_start (int, optional): Iteration at which the area-targeted envelope
+            starts restricting new activations. Defaults to 2.
+        envelope_scale (float, optional): Scale factor for the envelope radius.
+            Defaults to 0.1.
 
     Returns:
         torch.Tensor: A multiclass mask where each pixel is labeled with the iteration
@@ -398,6 +437,12 @@ def generate_multiclass_mask_from_heatmaps(
 
         # Threshold the clamped accumulated heatmap to get the binary activation.
         current_binary = clamped_heatmap > threshold
+
+        # From ``envelope_start`` onward, restrict new activations to lie within a
+        # dilated envelope around the already confirmed mask.
+        if it >= envelope_start:
+            envelope = _area_targeted_envelope(prev_binary, envelope_scale)
+            current_binary = current_binary & envelope
 
         # Identify new activations: pixels that are active now but were not previously.
         new_activation = current_binary & (~prev_binary)
