@@ -8,10 +8,6 @@ train_config:
     threshold: 0.85
     negative_load_strategy: random
     super_sizes: [480, 544, 610]
-  aug:
-      translate_frac: 0.25  # Same for both x and y
-      degrees: 25  # Rotation in degrees
-      scale: 0.15
 
 masks:
   remove_background: false

@@ -33,6 +33,8 @@ class AdversarialErasingModel(BaseModel):
                 "are set."
             )
 
+        print(self.aug_config)
+
     def _process_batch(
         self,
         images: torch.Tensor,
@@ -110,6 +112,13 @@ class AdversarialErasingModel(BaseModel):
             img, self.aug_config.mean, self.aug_config.std
         )
 
+        if self.aug_config.random_erasing:
+            re = transforms.RandomErasing(
+                p=self.aug_config.random_erasing.p,
+                scale=self.aug_config.random_erasing.scale,
+            )
+            img = re(img)
+
         return img
 
     def _maybe_save_images(
@@ -132,7 +141,7 @@ class AdversarialErasingModel(BaseModel):
                     norm[i],
                     os.path.join(
                         save_dir,
-                        f"iter_{self.current_iteration}_batch_{batch_idx}_{img_paths[i].removesuffix(".png")}.png",
+                        f"iter_{self.current_iteration}_batch_{batch_idx}_{img_paths[i].removesuffix('.png')}.png",
                     ),
                 )
 

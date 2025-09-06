@@ -2,7 +2,7 @@ defaults:
     - cancer_config
 
 data:
-  directory: data/bus_final
+  directory: data/bus
   original_width: 856
   original_height: 856
 

@@ -1,8 +1,32 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from pprint import pformat
 from typing import Optional, Sequence, Tuple, Union
 
 from omegaconf import DictConfig
 from torchvision import transforms
+
+
+@dataclass
+class RandomErasingConfig:
+    p: float
+    scale: Tuple[float, float]
+
+    def __post_init__(self):
+        if not isinstance(self.p, (int, float)) or not (0.0 <= self.p <= 1.0):
+            raise ValueError(f"p must be a float between 0 and 1, got {self.p}")
+        if not isinstance(self.scale, tuple) or len(self.scale) != 2:
+            raise ValueError(f"scale must be a tuple of two floats, got {self.scale}")
+        if not all(isinstance(s, (int, float)) for s in self.scale):
+            raise ValueError("scale values must be floats")
+        if not (0.0 <= self.scale[0] <= self.scale[1] <= 1.0):
+            raise ValueError(
+                "scale values must be between 0 and 1 and in ascending order"
+            )
+
+    def __str__(self) -> str:
+        return f"RandomErasingConfig(p={self.p}, scale={self.scale})"
+
+    __repr__ = __str__
 
 
 @dataclass
@@ -17,6 +41,7 @@ class AugConfig:
     fill_color: Union[int, float, Sequence[float]] = 0
     horizontal_flip: bool = False
     vertical_flip: bool = False
+    random_erasing: Optional[RandomErasingConfig] = None
 
     def __post_init__(self):
         # Validate image dimensions
@@ -105,6 +130,14 @@ class AugConfig:
                 f"vertical_flip must be a boolean, got {type(self.vertical_flip)}"
             )
 
+        # Validate random erasing configuration
+        if self.random_erasing is not None and not isinstance(
+            self.random_erasing, RandomErasingConfig
+        ):
+            raise ValueError(
+                "random_erasing must be an instance of RandomErasingConfig or None"
+            )
+
     def is_valid_for_adversarial_erasing(self) -> bool:
         """
         Check if the configuration is valid for adversarial erasing.
@@ -112,6 +145,17 @@ class AugConfig:
         """
         necessary = ["mean", "std", "translate_frac", "degrees", "scale"]
         return all(getattr(self, f) is not None for f in necessary)
+
+    def to_pretty_string(self) -> str:
+        data = asdict(self)
+        body = pformat(data, indent=2, width=100, sort_dicts=False)
+        meta = f"adversarial_erasing_ready={self.is_valid_for_adversarial_erasing()}"
+        return f"{body}\n# {meta}"
+
+    def __str__(self) -> str:
+        return f"AugConfig(\n{self.to_pretty_string()}\n)"
+
+    __repr__ = __str__
 
 
 def to_aug_config(cfg: DictConfig) -> AugConfig:
@@ -140,6 +184,14 @@ def to_aug_config(cfg: DictConfig) -> AugConfig:
         fill_color = augmentation.get("fill_color", 0)
         horizontal_flip = augmentation.get("horizontal_flip", False)
         vertical_flip = augmentation.get("vertical_flip", False)
+        random_erasing_cfg = augmentation.get("random_erasing", None)
+        if random_erasing_cfg is not None:
+            re_p = random_erasing_cfg.get("p", None)
+            re_scale_raw = random_erasing_cfg.get("scale", None)
+            re_scale = tuple(re_scale_raw) if re_scale_raw is not None else None
+            random_erasing = RandomErasingConfig(p=re_p, scale=re_scale)
+        else:
+            random_erasing = None
     else:
         translate_frac = None
         degrees = None
@@ -147,6 +199,7 @@ def to_aug_config(cfg: DictConfig) -> AugConfig:
         fill_color = 0
         horizontal_flip = False
         vertical_flip = False
+        random_erasing = None
 
     return AugConfig(
         resize_width=resize_width,
@@ -159,13 +212,14 @@ def to_aug_config(cfg: DictConfig) -> AugConfig:
         fill_color=fill_color,
         horizontal_flip=horizontal_flip,
         vertical_flip=vertical_flip,
+        random_erasing=random_erasing,
     )
 
 
 def to_compose(aug_config: AugConfig, stage: str) -> transforms.Compose:
-    assert isinstance(
-        aug_config, AugConfig
-    ), f"aug_config should be of type AugConfig, received type {type(aug_config)}"
+    assert isinstance(aug_config, AugConfig), (
+        f"aug_config should be of type AugConfig, received type {type(aug_config)}"
+    )
 
     assert stage in [
         "train",
@@ -207,6 +261,14 @@ def to_compose(aug_config: AugConfig, stage: str) -> transforms.Compose:
     if aug_config.mean is not None and aug_config.std is not None:
         transform_list.append(
             transforms.Normalize(mean=aug_config.mean, std=aug_config.std),
+        )
+
+    if stage == "train" and aug_config.random_erasing:
+        transform_list.append(
+            transforms.RandomErasing(
+                p=aug_config.random_erasing.p,
+                scale=aug_config.random_erasing.scale,
+            )
         )
 
     return transforms.Compose(transform_list)
