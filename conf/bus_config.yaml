@@ -13,6 +13,12 @@ transforms:
   normalization:
     mean: [0.2458, 0.2572, 0.2814]
     std: [0.1491, 0.1544, 0.1675]
+  
+  augmentation:
+    brightness: 0.3
+    contrast: 0.3
+    saturation: 0.2
+    hue: 0.1
 
 mode:
   train_config:

@@ -108,6 +108,19 @@ class AdversarialErasingModel(BaseModel):
         flips_transform = transforms.Compose(flips)
         img = flips_transform(img)
 
+        cj_params = {}
+        if self.aug_config.brightness is not None:
+            cj_params["brightness"] = self.aug_config.brightness
+        if self.aug_config.contrast is not None:
+            cj_params["contrast"] = self.aug_config.contrast
+        if self.aug_config.saturation is not None:
+            cj_params["saturation"] = self.aug_config.saturation
+        if self.aug_config.hue is not None:
+            cj_params["hue"] = self.aug_config.hue
+        if cj_params:
+            jitter = transforms.ColorJitter(**cj_params)
+            img = jitter(img)
+
         img = image_processing.normalize_image_by_statistics(
             img, self.aug_config.mean, self.aug_config.std
         )

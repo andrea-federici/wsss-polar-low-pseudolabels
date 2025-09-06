@@ -41,6 +41,10 @@ class AugConfig:
     fill_color: Union[int, float, Sequence[float]] = 0
     horizontal_flip: bool = False
     vertical_flip: bool = False
+    brightness: Optional[float] = None
+    contrast: Optional[float] = None
+    saturation: Optional[float] = None
+    hue: Optional[float] = None
     random_erasing: Optional[RandomErasingConfig] = None
 
     def __post_init__(self):
@@ -118,6 +122,21 @@ class AugConfig:
                 f"{type(self.fill_color)}"
             )
 
+        # Validate color jitter parameters
+        for name in ["brightness", "contrast", "saturation"]:
+            value = getattr(self, name)
+            if value is not None:
+                if not isinstance(value, (int, float)) or value < 0:
+                    raise ValueError(
+                        f"{name} must be a non-negative number, got {value}"
+                    )
+
+        if self.hue is not None:
+            if not isinstance(self.hue, (int, float)) or not (0 <= self.hue <= 0.5):
+                raise ValueError(
+                    f"hue must be a number between 0 and 0.5, got {self.hue}"
+                )
+
         # Validate horizontal_flip
         if not isinstance(self.horizontal_flip, bool):
             raise ValueError(
@@ -184,6 +203,10 @@ def to_aug_config(cfg: DictConfig) -> AugConfig:
         fill_color = augmentation.get("fill_color", 0)
         horizontal_flip = augmentation.get("horizontal_flip", False)
         vertical_flip = augmentation.get("vertical_flip", False)
+        brightness = augmentation.get("brightness", None)
+        contrast = augmentation.get("contrast", None)
+        saturation = augmentation.get("saturation", None)
+        hue = augmentation.get("hue", None)
         random_erasing_cfg = augmentation.get("random_erasing", None)
         if random_erasing_cfg is not None:
             re_p = random_erasing_cfg.get("p", None)
@@ -199,6 +222,10 @@ def to_aug_config(cfg: DictConfig) -> AugConfig:
         fill_color = 0
         horizontal_flip = False
         vertical_flip = False
+        brightness = None
+        contrast = None
+        saturation = None
+        hue = None
         random_erasing = None
 
     return AugConfig(
@@ -212,6 +239,10 @@ def to_aug_config(cfg: DictConfig) -> AugConfig:
         fill_color=fill_color,
         horizontal_flip=horizontal_flip,
         vertical_flip=vertical_flip,
+        brightness=brightness,
+        contrast=contrast,
+        saturation=saturation,
+        hue=hue,
         random_erasing=random_erasing,
     )
 
@@ -250,6 +281,18 @@ def to_compose(aug_config: AugConfig, stage: str) -> transforms.Compose:
 
         if aug_config.vertical_flip:
             transform_list.append(transforms.RandomVerticalFlip())
+
+        cj_params = {}
+        if aug_config.brightness is not None:
+            cj_params["brightness"] = aug_config.brightness
+        if aug_config.contrast is not None:
+            cj_params["contrast"] = aug_config.contrast
+        if aug_config.saturation is not None:
+            cj_params["saturation"] = aug_config.saturation
+        if aug_config.hue is not None:
+            cj_params["hue"] = aug_config.hue
+        if cj_params:
+            transform_list.append(transforms.ColorJitter(**cj_params))
 
     transform_list.extend(
         [
