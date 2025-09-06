@@ -85,6 +85,10 @@ def run(cfg: DictConfig) -> None:
     remove_background = cfg.mode.masks.remove_background
     negative_dir = os.path.join(train_dir, "neg")
 
+    area_cfg = cfg.mode.train_config.heatmaps.get("area_envelope", {})
+    envelope_start = area_cfg.get("start_iteration", 2)
+    envelope_scale = area_cfg.get("scale", 0.1)
+
     os.makedirs(mask_dir, exist_ok=True)
 
     for iteration in range(0, max_iterations):
@@ -99,6 +103,8 @@ def run(cfg: DictConfig) -> None:
             iteration=iteration,
             remove_background=remove_background,
             vis=True,
+            envelope_start=envelope_start,
+            envelope_scale=envelope_scale,
         )
 
         # Non-visualizable (for training)
@@ -111,6 +117,8 @@ def run(cfg: DictConfig) -> None:
             iteration=iteration,
             remove_background=remove_background,
             vis=False,
+            envelope_start=envelope_start,
+            envelope_scale=envelope_scale,
         )
 
         ## MULTI-CLASS ##
@@ -124,6 +132,8 @@ def run(cfg: DictConfig) -> None:
             iteration=iteration,
             remove_background=remove_background,
             vis=True,
+            envelope_start=envelope_start,
+            envelope_scale=envelope_scale,
         )
 
         # Non-visualizable (for training)
@@ -136,6 +146,8 @@ def run(cfg: DictConfig) -> None:
             iteration=iteration,
             remove_background=remove_background,
             vis=False,
+            envelope_start=envelope_start,
+            envelope_scale=envelope_scale,
         )
 
         ## NEGATIVE ##
