@@ -1,7 +1,9 @@
+import glob
 import os
 from datetime import datetime
 from typing import List, Tuple, Union
 
+import cv2
 import matplotlib.pyplot as plt
 import torch
 import torch.nn.functional as F
@@ -11,7 +13,11 @@ from tqdm import tqdm
 
 import src.attributions.gradcam as gradcam
 import src.data.augmentation as aug
-from src.data.adversarial_erasing_io import load_accumulated_heatmap
+from src.data.adversarial_erasing_io import (
+    _area_targeted_envelope,
+    load_accumulated_heatmap,
+    load_tensor,
+)
 from src.data.data_loaders import create_class_dataloader
 from src.data.image_processing import erase_region_using_heatmap
 from src.post.masks import generate_masks, generate_negative_masks
@@ -27,10 +33,14 @@ def run(cfg: DictConfig) -> None:
 
     base_heatmaps_dir = heatmaps_config.base_directory
     training_size = (
-        cfg.transforms.resize_height,
-        cfg.transforms.resize_width,
+        cfg.data.transforms.resize_height,
+        cfg.data.transforms.resize_width,
     )  # (H, W)
     threshold = heatmaps_config.threshold
+
+    envelope_cfg = heatmaps_config.get("area_envelope", {})
+    envelope_start = envelope_cfg.get("start_iteration", 2)
+    envelope_scale = envelope_cfg.get("scale", 0.1)
 
     max_iterations = cfg.mode.train_config.max_iterations
 
@@ -67,6 +77,8 @@ def run(cfg: DictConfig) -> None:
             transform=heatmap_load_transform,
             base_heatmaps_dir=base_heatmaps_dir,
             iteration=iteration,
+            envelope_start=envelope_start,
+            envelope_scale=envelope_scale,
             save_dir=current_heatmaps_dir,
             target_size=training_size,
             super_sizes=heatmaps_config.super_sizes,
@@ -75,6 +87,24 @@ def run(cfg: DictConfig) -> None:
             logger=logger,
             device=cfg.hardware.device,
         )
+
+        if iteration > 0:
+            sample_paths = sorted(glob.glob(os.path.join(train_dir, "pos", "*.png")))[
+                :10
+            ]
+            debug_dir = os.path.join(
+                "out", "debug", "envelopes", f"iteration_{iteration}"
+            )
+            _save_envelope_debug_images(
+                base_heatmaps_dir=base_heatmaps_dir,
+                img_paths=sample_paths,
+                iteration=iteration,
+                threshold=threshold,
+                target_size=training_size,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
+                save_dir=debug_dir,
+            )
 
         logger.experiment["end_time"] = datetime.now().isoformat()
 
@@ -178,6 +208,8 @@ def _generate_and_save_heatmaps(
     transform: transforms.Compose,
     base_heatmaps_dir: str,
     iteration: int,
+    envelope_start: int,
+    envelope_scale: float,
     save_dir: str,
     target_size: Tuple[int, int],  # (H, W)
     super_sizes: List[int],
@@ -231,6 +263,9 @@ def _generate_and_save_heatmaps(
                             img_path,
                             label,
                             iteration - 1,
+                            threshold=threshold,
+                            envelope_start=envelope_start,
+                            envelope_scale=envelope_scale,
                         )
 
                         img = erase_region_using_heatmap(
@@ -341,3 +376,74 @@ def _save_heatmap(
     heatmap_filename_png = os.path.join(save_dir, f"{img_name}_pred_{pred}.png")
     heatmap_np = heatmap.detach().cpu().numpy()
     plt.imsave(heatmap_filename_png, heatmap_np, cmap="jet")
+
+
+def _save_envelope_debug_images(
+    *,
+    base_heatmaps_dir: str,
+    img_paths: List[str],
+    iteration: int,
+    threshold: float,
+    target_size: Tuple[int, int],
+    envelope_start: int,
+    envelope_scale: float,
+    save_dir: str,
+) -> None:
+    """Save composite plots illustrating mask accumulation and envelope constraints.
+
+    Each saved figure contains one subplot per iteration up to ``iteration-1``.
+    For subplot ``t``, the image is overlaid with the cumulative mask through
+    iteration ``t`` (inclusive), the raw heatmap from iteration ``t+1``, and the
+    border of the area-targeted envelope computed from the current mask.
+
+    Args:
+        base_heatmaps_dir: Directory containing per-iteration heatmaps.
+        img_paths: List of image file paths to visualize.
+        iteration: Current iteration (the latest heatmaps correspond to this index).
+        threshold: Threshold used to binarize accumulated heatmaps.
+        target_size: Size ``(H, W)`` to which images are resized for visualization.
+        envelope_start: Iteration at which the envelope constraint begins.
+        envelope_scale: Scale factor controlling envelope dilation.
+        save_dir: Directory where the debug figures will be saved.
+    """
+
+    os.makedirs(save_dir, exist_ok=True)
+
+    for img_path in img_paths:
+        img_name = os.path.splitext(os.path.basename(img_path))[0]
+        img = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        if img is None:
+            continue
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (target_size[1], target_size[0]))
+
+        fig, axes = plt.subplots(1, iteration, figsize=(5 * iteration, 5))
+        if iteration == 1:
+            axes = [axes]
+
+        for t in range(iteration):
+            cumulative = load_accumulated_heatmap(
+                base_heatmaps_dir,
+                img_name,
+                1,
+                t,
+                threshold=threshold,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
+            )
+            mask = cumulative > threshold
+
+            next_heatmap = load_tensor(base_heatmaps_dir, t + 1, img_name)
+            ax = axes[t]
+            ax.imshow(img)
+            ax.imshow(mask.cpu(), cmap="Reds", alpha=0.4)
+            ax.imshow(next_heatmap.cpu(), cmap="jet", alpha=0.4)
+            if t >= envelope_start:
+                envelope = _area_targeted_envelope(mask, envelope_scale)
+                ax.contour(envelope.cpu(), levels=[0.5], colors="yellow", linewidths=1)
+            ax.set_title(f"iter {t} -> {t + 1}")
+            ax.axis("off")
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(save_dir, f"{img_name}.png"))
+        plt.close(fig)

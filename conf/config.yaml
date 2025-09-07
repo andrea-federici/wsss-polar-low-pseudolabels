@@ -1,3 +1,6 @@
 defaults:
-  - defaults
+  - hardware: cuda
+  - logger: neptune
+  - data: polar_lows
   - mode: adversarial_erasing
+  - training: base

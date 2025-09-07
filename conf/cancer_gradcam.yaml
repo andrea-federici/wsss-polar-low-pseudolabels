@@ -1,6 +1,0 @@
-defaults:
-  - cancer_standard_adv_er
-
-mode:
-  train_config:
-    max_iterations: 1

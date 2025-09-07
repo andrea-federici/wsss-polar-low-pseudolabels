@@ -30,6 +30,8 @@ class BaseEraseStrategy(ABC):
     base_dir: str
     fill_color: float
     negative_load_strategy: NegativeLoadStrategy = NegativeLoadStrategy.RANDOM
+    envelope_start: int = 2
+    envelope_scale: float = 0.1
 
     def __post_init__(self):
         raw = self.negative_load_strategy
@@ -83,6 +85,9 @@ class HeatmapEraseStrategy(BaseEraseStrategy):
                 img_name,
                 label,
                 current_iteration - 1,
+                threshold=self.heatmap_threshold,
+                envelope_start=self.envelope_start,
+                envelope_scale=self.envelope_scale,
                 negative_load_strategy=self.negative_load_strategy.value,
             )
 

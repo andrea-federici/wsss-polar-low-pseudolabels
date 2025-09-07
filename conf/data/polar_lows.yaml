@@ -1,0 +1,23 @@
+directory: data/polar_lows
+original_width: 800
+original_height: 800
+
+transforms:
+  resize_width: 512
+  resize_height: 512
+
+  normalization:
+    mean: [0.2872, 0.2872, 0.4595]
+    std: [0.1806, 0.1806, 0.2621]
+
+# This augmentation is used only if train_data_transform is set to 'train' in the 
+# training mode
+  augmentation:
+    translate_frac: 0.35
+    degrees: 40
+    scale: [0.9, 1.1]
+    horizontal_flip: true
+    vertical_flip: true
+    random_erasing:
+      p: 0.5
+      scale: [0.02, 0.1]

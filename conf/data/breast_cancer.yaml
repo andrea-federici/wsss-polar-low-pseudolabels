@@ -1,10 +1,9 @@
 defaults:
-    - cancer_config
+  - polar_lows
 
-data:
-  directory: data/bus
-  original_width: 856
-  original_height: 856
+directory: data/bus
+original_width: 856
+original_height: 856
 
 transforms:
   resize_width: 512
@@ -19,8 +18,13 @@ transforms:
     contrast: 0.3
     saturation: 0.2
     hue: 0.1
-
+  
 mode:
   train_config:
+    max_iterations: 6
     heatmaps:
+      threshold: 0.85
+      negative_load_strategy: random
       super_sizes: [512]
+    masks:
+      remove_background: false

@@ -33,17 +33,18 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
     device = cfg.hardware.device
 
     ## LOGGER ##
-    neptune_logger = create_neptune_logger(cfg.neptune.project, cfg.neptune.api_key)
+    neptune_logger = create_neptune_logger(cfg.logger.project, cfg.logger.api_key)
 
+    train_cfg = cfg.training
     ## TORCH MODEL ##
-    torch_model = torch_model_getter(cfg.torch_model, cfg.num_classes, device=device)
+    torch_model = torch_model_getter(train_cfg.torch_model, train_cfg.num_classes, device=device)
 
     ## DATA LOADERS ##
-    aug_config = to_aug_config(cfg.transforms)
+    aug_config = to_aug_config(cfg.data.transforms)
     train_loader, val_loader, _ = create_data_loaders(
         cfg.data.directory,
-        batch_size=cfg.batch_size,
-        num_workers=cfg.num_workers,
+        batch_size=train_cfg.batch_size,
+        num_workers=cfg.hardware.num_workers,
         transform_train=to_compose(aug_config, cfg.mode.train_data_transform),
         transform_val=to_compose(aug_config, "val"),
         dataset_type=cfg.mode.dataset_type,
@@ -51,22 +52,22 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
     )
 
     ## LOSS AND OPTIMIZER ##
-    criterion = criterion_getter(cfg.criterion)
-    optimizer = optimizer_getter(cfg.optimizer, torch_model, cfg.learning_rate)
+    criterion = criterion_getter(train_cfg.criterion)
+    optimizer = optimizer_getter(train_cfg.optimizer, torch_model, train_cfg.learning_rate)
 
     ## OPTIMIZER CONFIGURATION ##
     lr_scheduler = lr_scheduler_getter(
-        cfg.lr_scheduler.name,
+        train_cfg.lr_scheduler.name,
         optimizer,
-        cfg.lr_scheduler.mode,
-        cfg.lr_scheduler.patience,
-        cfg.lr_scheduler.factor,
+        train_cfg.lr_scheduler.mode,
+        train_cfg.lr_scheduler.patience,
+        train_cfg.lr_scheduler.factor,
     )
     optimizer_config = {
         "optimizer": optimizer,
         "lr_scheduler": {
             "scheduler": lr_scheduler,
-            "monitor": cfg.lr_scheduler.monitor,
+            "monitor": train_cfg.lr_scheduler.monitor,
             "interval": "epoch",
         },
     }
@@ -88,11 +89,14 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
             )
         if cfg.mode.erase_strategy == "heatmap":
             heatmaps_config = cfg.mode.train_config.heatmaps
+            envelope_cfg = heatmaps_config.get("area_envelope", {})
             heatmap_erase_strategy = HeatmapEraseStrategy(
                 fill_color=heatmaps_config.fill_color,
                 base_dir=heatmaps_config.base_directory,
                 heatmap_threshold=heatmaps_config.threshold,
                 negative_load_strategy=heatmaps_config.negative_load_strategy,
+                envelope_start=envelope_cfg.get("start_iteration", 2),
+                envelope_scale=envelope_cfg.get("scale", 0.1),
             )
             model_config = AdversarialErasingBaseConfig(
                 iteration=iteration,
@@ -132,20 +136,20 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
     # Early Stopping
     callbacks.append(
         cb.EarlyStopping(
-            monitor=cfg.early_stopping.monitor,
-            mode=cfg.early_stopping.mode,
-            patience=cfg.early_stopping.patience,
+            monitor=train_cfg.early_stopping.monitor,
+            mode=train_cfg.early_stopping.mode,
+            patience=train_cfg.early_stopping.patience,
         )
     )
 
     # Model Checkpoint
     callbacks.append(
         cb.ModelCheckpoint(
-            monitor=cfg.checkpoint.monitor,
-            mode=cfg.checkpoint.mode,
+            monitor=train_cfg.checkpoint.monitor,
+            mode=train_cfg.checkpoint.mode,
             save_top_k=1,
-            dirpath=cfg.checkpoint.directory,
-            filename=cfg.checkpoint.filename,
+            dirpath=train_cfg.checkpoint.directory,
+            filename=train_cfg.checkpoint.filename,
         )
     )
 
@@ -157,7 +161,7 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
     ## TRAINER ##
     trainer = Trainer(
         logger=neptune_logger,
-        max_epochs=cfg.max_epochs,
+        max_epochs=train_cfg.max_epochs,
         callbacks=callbacks,
         accelerator=cfg.hardware.accelerator,
         devices=cfg.hardware.devices,

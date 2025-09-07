@@ -162,6 +162,10 @@ def load_accumulated_heatmap(
     img_name: str,
     label: int,
     iteration: int,
+    *,
+    threshold: float,
+    envelope_start: int = 2,
+    envelope_scale: float = 0.1,
     negative_load_strategy: str = None,  # We use type str here to avoid circular
     # import. It would be better to use the enum type.
 ) -> torch.Tensor:
@@ -174,6 +178,8 @@ def load_accumulated_heatmap(
     based on the first six characters of the image name.
 
     The accumulated heatmap is normalized to ensure values remain between 0 and 1.
+    From ``envelope_start`` onward, new activations are restricted to lie within an
+    area-targeted envelope around the previously confirmed mask.
 
     Args:
         base_heatmaps_dir (str): The base directory containing the iteration folders.
@@ -181,6 +187,12 @@ def load_accumulated_heatmap(
         label (int): The class label (0 for negative, 1 for positive).
         iteration (int): The highest iteration (inclusive) to consider for heatmap
             accumulation.
+        threshold (float): Threshold used to binarize the accumulated heatmap at each
+            iteration.
+        envelope_start (int, optional): Iteration at which the area-targeted envelope
+            starts restricting new activations. Defaults to 2.
+        envelope_scale (float, optional): Scale factor for the envelope radius.
+            Defaults to 0.1.
         negative_load_strategy (str, optional): The strategy for loading negative samples
             when label is 0. It can be one of the following:
             - "random": Load a random heatmap from the base directory and use it for
@@ -211,8 +223,9 @@ def load_accumulated_heatmap(
     # Load a reference heatmap to get the proper shape.
     reference_heatmap = pick_random_tensor(base_heatmaps_dir, 0)
 
-    # Initialize an all-zeros tensor for heatmap accumulation.
+    # Initialize tensors for accumulation and tracking previous binary mask.
     accumulated_heatmap = torch.zeros_like(reference_heatmap, dtype=torch.float32)
+    prev_binary = torch.zeros_like(reference_heatmap, dtype=torch.bool)
 
     if negative_load_strategy == NegativeLoadStrategy.RANDOM.value and label == 0:
         random_img_name = pick_random_tensor(
@@ -235,9 +248,16 @@ def load_accumulated_heatmap(
                 heatmap = load_matching_tensor(base_heatmaps_dir, it, img_name[:6])
 
         accumulated_heatmap += heatmap
+        accumulated_heatmap = torch.clamp(accumulated_heatmap, 0, 1)
 
-    # Normalize the accumulated heatmap to keep values between 0 and 1
-    accumulated_heatmap = torch.clamp(accumulated_heatmap, 0, 1)
+        # Apply envelope-based restriction from ``envelope_start`` onward.
+        current_binary = accumulated_heatmap > threshold
+        if it >= envelope_start:
+            envelope = _area_targeted_envelope(prev_binary, envelope_scale)
+            current_binary = current_binary & envelope
+            accumulated_heatmap = accumulated_heatmap * envelope.float()
+
+        prev_binary = current_binary
 
     return accumulated_heatmap
 
@@ -350,7 +370,7 @@ def _area_targeted_envelope(mask: torch.Tensor, scale: float) -> torch.Tensor:
     if area == 0:
         return mask
 
-    radius = max(1, int(round((area ** 0.5) * scale)))
+    radius = max(1, int(round((area**0.5) * scale)))
     kernel = 2 * radius + 1
 
     # Use max pooling as a fast morphological dilation.

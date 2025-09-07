@@ -1,0 +1,11 @@
+device: cuda
+accelerator: gpu
+devices: 1
+
+# Enable Tensor Cores for faster matrix multiplications, trading some 
+# precision for performance.
+# - 'high' gives the best speed-up but with reduced precision.
+# - 'medium' balances precision and performance.
+# - 'highest' (default) maintains full precision but may be slower.
+matmul_precision: medium
+num_workers: 16

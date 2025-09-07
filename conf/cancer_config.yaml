@@ -1,19 +1,6 @@
 defaults:
-  - defaults
-  - mode: adversarial_erasing_cancer
-
-data:
-  directory: data/breast_cancer
-  original_width: 480
-  original_height: 480
-
-transforms:
-  resize_width: 480
-  resize_height: 480
-
-  normalization:
-    mean: [0.3289, 0.3288, 0.3288]
-    std: [0.2201, 0.2201, 0.2201]
-
-learning_rate: 5e-5
-batch_size: 32
+  - hardware: cuda
+  - logger: neptune
+  - data: breast_cancer
+  - mode: adversarial_erasing
+  - training: base

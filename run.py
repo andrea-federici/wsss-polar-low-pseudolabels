@@ -8,15 +8,15 @@ from src.train.mode import train_adv_er, train_single
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def run(cfg: DictConfig) -> None:
-    validate_hardware_config(cfg)
     load_dotenv()
 
     # Mask sensitive information
     cfg_copy = OmegaConf.create(cfg)  # Create a mutable copy
-    cfg_copy.neptune.api_key = "*****"  # Mask or remove the sensitive key
+    cfg_copy.logger.api_key = "*****"  # Mask or remove the sensitive key
     print(OmegaConf.to_yaml(cfg_copy, resolve=True))
 
-    torch.set_float32_matmul_precision(cfg.matmul_precision)
+    validate_hardware_config(cfg)
+    torch.set_float32_matmul_precision(cfg.hardware.matmul_precision)
 
     mode = cfg.mode.name
     if mode == "single":

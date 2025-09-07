@@ -1,0 +1,35 @@
+## MODEL ##
+torch_model: xception
+num_classes: 2
+
+## LOSS AND OPTIMIZER ##
+criterion: cross_entropy
+optimizer: adam
+
+## TRAINING ##
+batch_size: 16
+max_epochs: 200
+learning_rate: 5e-4
+
+## CALLBACKS ##
+
+# Early stopping
+early_stopping:
+  monitor: val_loss
+  mode: min
+  patience: 25
+
+# Checkpoint
+checkpoint:
+  monitor: val_loss
+  mode: min
+  directory: out/checkpoints
+  filename: best-checkpoint
+
+# Learning rate scheduler
+lr_scheduler:
+  name: reduce_lr_on_plateau
+  monitor: val_loss
+  mode: min
+  patience: 7
+  factor: 0.5
