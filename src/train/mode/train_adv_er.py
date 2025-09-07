@@ -4,7 +4,9 @@ from datetime import datetime
 from typing import List, Tuple, Union
 
 import cv2
+import matplotlib
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
@@ -66,8 +68,8 @@ def run(cfg: DictConfig) -> None:
             aug.AugConfig(
                 resize_width=cfg.data.original_width,  # Remember to use original size
                 resize_height=cfg.data.original_height,  # Same as above
-                mean=cfg.transforms.normalization.mean,
-                std=cfg.transforms.normalization.std,
+                mean=cfg.data.transforms.normalization.mean,
+                std=cfg.data.transforms.normalization.std,
             ),
             "val",
         )
@@ -434,6 +436,7 @@ def _save_envelope_debug_images(
             mask = cumulative > threshold
 
             next_heatmap = load_tensor(base_heatmaps_dir, t + 1, img_name)
+
             ax = axes[t]
             ax.imshow(img)
             ax.imshow(mask.cpu(), cmap="Reds", alpha=0.4)

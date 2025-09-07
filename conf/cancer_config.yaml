@@ -4,3 +4,15 @@ defaults:
   - data: breast_cancer
   - mode: adversarial_erasing
   - training: base
+
+mode:
+  train_config:
+    max_iterations: 6
+    heatmaps:
+      threshold: 0.9
+      negative_load_strategy: random
+      super_sizes: [512]
+      area_envelope:
+        scale: 0.2
+  masks:
+    remove_background: false
