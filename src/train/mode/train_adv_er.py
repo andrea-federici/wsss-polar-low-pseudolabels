@@ -14,6 +14,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 import src.attributions.gradcam as gradcam
+import src.attributions.cam as cam
 import src.data.augmentation as aug
 from src.data.adversarial_erasing_io import (
     _area_targeted_envelope,
@@ -83,7 +84,8 @@ def run(cfg: DictConfig) -> None:
             envelope_scale=envelope_scale,
             save_dir=current_heatmaps_dir,
             target_size=training_size,
-            super_sizes=heatmaps_config.super_sizes,
+            super_sizes=heatmaps_config.get("super_sizes", []),
+            attribution=heatmaps_config.attribution,
             threshold=threshold,
             fill_color=heatmaps_config.fill_color,
             logger=logger,
@@ -218,6 +220,7 @@ def _generate_and_save_heatmaps(
     threshold: float,
     fill_color: Union[int, float],
     logger: NeptuneLogger,
+    attribution: str = "gradcam",
     target_class: int = 1,
     batch_size: int = 32,
     num_workers: int = 4,
@@ -274,14 +277,24 @@ def _generate_and_save_heatmaps(
                             img, accumulated_heatmap, threshold, fill_color
                         )
 
-                    heatmap, intermediates = gradcam.generate_super_heatmap(
-                        model,
-                        img,
-                        target_size=target_size,
-                        sizes=super_sizes,
-                        target_class=1,
-                        return_intermediates=True,
-                    )
+                    if attribution.lower() == "gradcam":
+                        heatmap, intermediates = gradcam.generate_super_heatmap(
+                            model,
+                            img,
+                            target_size=target_size,
+                            sizes=super_sizes,
+                            target_class=target_class,
+                            return_intermediates=True,
+                        )
+                    elif attribution.lower() == "cam":
+                        heatmap = cam.generate_heatmap(
+                            model, img, target_class=target_class
+                        )
+                        intermediates = {}
+                    else:
+                        raise ValueError(
+                            f"Unsupported attribution method: {attribution}"
+                        )
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
 
