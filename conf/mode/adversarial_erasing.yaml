@@ -8,6 +8,7 @@ erase_strategy: heatmap
 train_config:
   max_iterations: 10
   heatmaps:
+    attribution: gradcam  # Options: gradcam, cam
     base_directory: out/heatmaps
     threshold: 0.7
     fill_color: 0
