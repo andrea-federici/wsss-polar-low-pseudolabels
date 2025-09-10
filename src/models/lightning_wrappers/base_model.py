@@ -6,11 +6,21 @@ from torch import nn
 
 class BaseModel(LightningModule):
 
-    def __init__(self, model: nn.Module, criterion: nn.Module, optimizer_config: dict):
+    def __init__(
+        self,
+        model: nn.Module,
+        criterion: nn.Module,
+        optimizer_config: dict,
+        *,
+        multi_label: bool = False,
+        threshold: float = 0.5,
+    ):
         super().__init__()
         self.model = model
         self.criterion = criterion  # Loss function
         self.optimizer_config = optimizer_config  # Optimizer configuration
+        self.multi_label = multi_label
+        self.threshold = threshold
 
         # This is needed so that we don't need to pass all the hyperparameters when
         # loading the checkpoint
@@ -34,10 +44,14 @@ class BaseModel(LightningModule):
         logits = self(images)  # Forward pass to get predictions
         loss = self.criterion(logits, labels)  # Calculate loss
 
-        preds = torch.argmax(logits, dim=1)
+        if self.multi_label:
+            preds = (torch.sigmoid(logits) > self.threshold).int()
+        else:
+            preds = torch.argmax(logits, dim=1)
+
         output = {
-            "preds": preds.cpu().numpy(),
-            "labels": labels.cpu().numpy(),
+            "preds": preds.cpu().tolist(),
+            "labels": labels.cpu().tolist(),
             "loss": loss.item(),
         }
 
@@ -79,10 +93,22 @@ class BaseModel(LightningModule):
             total_loss += output["loss"]
 
         avg_loss = total_loss / len(outputs)  # Average loss for the epoch
-        accuracy = accuracy_score(all_labels, all_preds)
-        precision = precision_score(all_labels, all_preds, average="binary")
-        recall = recall_score(all_labels, all_preds, average="binary")
-        f1 = f1_score(all_labels, all_preds, average="binary")
+        if self.multi_label:
+            accuracy = accuracy_score(all_labels, all_preds)
+            precision = precision_score(
+                all_labels, all_preds, average="micro", zero_division=0
+            )
+            recall = recall_score(
+                all_labels, all_preds, average="micro", zero_division=0
+            )
+            f1 = f1_score(
+                all_labels, all_preds, average="micro", zero_division=0
+            )
+        else:
+            accuracy = accuracy_score(all_labels, all_preds)
+            precision = precision_score(all_labels, all_preds, average="binary")
+            recall = recall_score(all_labels, all_preds, average="binary")
+            f1 = f1_score(all_labels, all_preds, average="binary")
 
         self.log(f"{stage}/epoch_loss", avg_loss, on_epoch=True, prog_bar=True)
         self.log(f"{stage}/epoch_accuracy", accuracy, on_epoch=True, prog_bar=True)

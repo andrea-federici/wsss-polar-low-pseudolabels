@@ -30,10 +30,18 @@ def lightning_model_getter(
     criterion: nn.Module,
     optimizer_config: dict,
     model_config: BaseConfig = None,
+    multi_label: bool = False,
+    threshold: float = 0.5,
     device: str = "cpu",
 ) -> LightningModule:
     if lightning_model_name == BASE_MODEL:
-        return BaseModel(torch_model, criterion, optimizer_config).to(device)
+        return BaseModel(
+            torch_model,
+            criterion,
+            optimizer_config,
+            multi_label=multi_label,
+            threshold=threshold,
+        ).to(device)
     elif lightning_model_name == ADVERSARIAL_ERASING_MODEL:
         if not isinstance(model_config, AdversarialErasingBaseConfig):
             raise TypeError(
@@ -45,6 +53,8 @@ def lightning_model_getter(
             criterion=criterion,
             optimizer_config=optimizer_config,
             adver_config=model_config,
+            multi_label=multi_label,
+            threshold=threshold,
         ).to(device)
     else:
         raise ValueError(

@@ -20,8 +20,16 @@ class AdversarialErasingModel(BaseModel):
         criterion: torch.nn.Module,
         optimizer_config: dict,
         adver_config: AdversarialErasingBaseConfig,
+        multi_label: bool = False,
+        threshold: float = 0.5,
     ):
-        super().__init__(model, criterion, optimizer_config)
+        super().__init__(
+            model,
+            criterion,
+            optimizer_config,
+            multi_label=multi_label,
+            threshold=threshold,
+        )
         self.current_iteration = adver_config.iteration
         self.aug_config = adver_config.aug_config
         self.erase_strategy = adver_config.erase_strategy
