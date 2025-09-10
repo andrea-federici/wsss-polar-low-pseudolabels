@@ -23,6 +23,15 @@ _DATASET_REGISTRY = {
             "transform": transform,
         },
     },
+    "pascal_voc": {
+        "dataset_class": data.custom_datasets.PascalVOCDataset,
+        "kwargs": lambda data_dir, transform, split="train": {
+            "root": data_dir,
+            "transform": transform,
+            "split": split,
+        },
+        "multi_label": True,
+    },
 }
 
 
@@ -74,52 +83,77 @@ def create_data_loaders(
             f"Unsupported dataset type '{dataset_type}'. Valid types are: {valid}"
         )
 
-    # Prepare directories
-    train_dir = os.path.join(data_dir, "train")
-    test_dir = os.path.join(data_dir, "test")
-
     # Use validation transform for test if test transform not provided
     transform_test = transform_test or transform_val
 
-    ## LOAD TRAIN (AND VAL) DATA ##
     entry = _DATASET_REGISTRY[dataset_type]
-    train_val_data = entry["dataset_class"](
-        **entry["kwargs"](train_dir, transform_train)
-    )
 
-    # Split training data while preserving class proportions
-    train_data, train_indices, val_indices = (
-        data.utils.dataset_stratified_shuffle_split(train_val_data)
-    )
+    if entry.get("multi_label", False):
+        # Pascal VOC style dataset with predefined train/val splits and multi-label targets
+        train_data = entry["dataset_class"](
+            **entry["kwargs"](data_dir, transform_train, split="train")
+        )
+        val_data = entry["dataset_class"](
+            **entry["kwargs"](data_dir, transform_val, split="val")
+        )
+        test_data = entry["dataset_class"](
+            **entry["kwargs"](data_dir, transform_test, split="val")
+        )
+        sampler = None
+        train_indices = list(range(len(train_data)))
+    else:
+        # Prepare directories
+        train_dir = os.path.join(data_dir, "train")
+        test_dir = os.path.join(data_dir, "test")
 
-    ## LOAD VAL DATA ##
-    val_data = Subset(
-        entry["dataset_class"](**entry["kwargs"](train_dir, transform_val)), val_indices
-    )
+        ## LOAD TRAIN (AND VAL) DATA ##
+        train_val_data = entry["dataset_class"](
+            **entry["kwargs"](train_dir, transform_train)
+        )
 
-    ## LOAD TEST DATA ##
-    test_data = datasets.ImageFolder(test_dir, transform=transform_test)
+        # Split training data while preserving class proportions
+        train_data, train_indices, val_indices = (
+            data.utils.dataset_stratified_shuffle_split(train_val_data)
+        )
 
-    # Calculate class weights
-    class_weights = data.utils.dataset_calculate_class_weights(
-        train_val_data, train_indices
-    )
+        ## LOAD VAL DATA ##
+        val_data = Subset(
+            entry["dataset_class"](**entry["kwargs"](train_dir, transform_val)), val_indices
+        )
 
-    # Assign weights to each sample
-    sample_weights = [class_weights[train_val_data.targets[i]] for i in train_indices]
+        ## LOAD TEST DATA ##
+        test_data = datasets.ImageFolder(test_dir, transform=transform_test)
 
-    sampler = WeightedRandomSampler(
-        weights=sample_weights, num_samples=len(sample_weights), replacement=True
-    )
+        # Calculate class weights
+        class_weights = data.utils.dataset_calculate_class_weights(
+            train_val_data, train_indices
+        )
+
+        # Assign weights to each sample
+        sample_weights = [class_weights[train_val_data.targets[i]] for i in train_indices]
+
+        sampler = WeightedRandomSampler(
+            weights=sample_weights, num_samples=len(sample_weights), replacement=True
+        )
 
     def collate_fn(batch):
         first = batch[0]
         if isinstance(first, tuple) and len(first) == 2:
             images, labels = zip(*batch)
-            return torch.stack(images), torch.tensor(labels)
+            labels = (
+                torch.stack(labels)
+                if isinstance(labels[0], torch.Tensor)
+                else torch.tensor(labels)
+            )
+            return torch.stack(images), labels
         elif isinstance(first, tuple) and len(first) == 3:
             images, labels, extra = zip(*batch)
-            return torch.stack(images), torch.tensor(labels), extra
+            labels = (
+                torch.stack(labels)
+                if isinstance(labels[0], torch.Tensor)
+                else torch.tensor(labels)
+            )
+            return torch.stack(images), labels, extra
         else:
             return default_collate(batch)
 
@@ -135,7 +169,7 @@ def create_data_loaders(
             collate_fn=collate_fn,
         )
 
-    train_loader = make_loader(train_data, sampler=sampler, shuffle=None)
+    train_loader = make_loader(train_data, sampler=sampler, shuffle=(sampler is None))
     val_loader = make_loader(val_data, sampler=None, shuffle=False)
     test_loader = make_loader(test_data, sampler=None, shuffle=False)
 
@@ -184,7 +218,12 @@ def create_class_dataloader(
     entry = _DATASET_REGISTRY[dataset_type]
     ds = entry["dataset_class"](**entry["kwargs"](data_dir, transform))
 
-    class_indices = [i for i, label in enumerate(ds.targets) if label == target_class]
+    if entry.get("multi_label", False):
+        class_indices = [
+            i for i, label in enumerate(ds.targets) if label[target_class] == 1
+        ]
+    else:
+        class_indices = [i for i, label in enumerate(ds.targets) if label == target_class]
 
     class_data = Subset(ds, class_indices)
     return DataLoader(
