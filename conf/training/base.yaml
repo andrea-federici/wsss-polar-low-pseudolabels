@@ -1,6 +1,8 @@
 ## MODEL ##
 torch_model: xception
 num_classes: 2
+multi_label: false
+threshold: 0.5
 
 ## LOSS AND OPTIMIZER ##
 criterion: cross_entropy

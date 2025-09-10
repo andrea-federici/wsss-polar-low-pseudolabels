@@ -80,6 +80,8 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
             torch_model,
             criterion=criterion,
             optimizer_config=optimizer_config,
+            multi_label=train_cfg.get("multi_label", False),
+            threshold=train_cfg.get("threshold", 0.5),
             device=device,
         )
     elif lightning_model_name == "adversarial_erasing":
@@ -124,6 +126,8 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
             criterion=criterion,
             optimizer_config=optimizer_config,
             model_config=model_config,
+            multi_label=train_cfg.get("multi_label", False),
+            threshold=train_cfg.get("threshold", 0.5),
             device=device,
         )
     else:
