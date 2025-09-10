@@ -1,0 +1,9 @@
+defaults:
+  - cancer_config
+
+mode:
+  train_config:
+    heatmaps:
+      area_envelope:
+        start_iteration: 100  # disables area envelope
+        scale: 0.2
