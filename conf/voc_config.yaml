@@ -1,0 +1,6 @@
+defaults:
+  - hardware: cuda
+  - logger: neptune
+  - data: pascal_voc
+  - mode: adversarial_erasing
+  - training: pascal_voc

@@ -56,6 +56,7 @@ def lightning_model_getter(
 def criterion_getter(criterion_name: str):
     criterions = {
         "cross_entropy": nn.CrossEntropyLoss(),
+        "bce_with_logits": nn.BCEWithLogitsLoss(),
     }
 
     if criterion_name not in criterions:
