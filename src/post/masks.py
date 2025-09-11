@@ -8,7 +8,10 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from src.data.adversarial_erasing_io import generate_multiclass_mask_from_heatmaps
+from src.data.adversarial_erasing_io import (
+    generate_exclusive_multiclass_mask_from_heatmaps,
+    generate_multiclass_mask_from_heatmaps,
+)
 from src.utils.constants import PYTORCH_EXTENSION
 
 
@@ -116,7 +119,7 @@ def generate_masks(
     mask_dir: str,
     mask_size: Tuple[int, int],  # (width, height)
     threshold: float,  # Must match the one used in load_multilabel_mask
-    type: str,  # "binary" or "multiclass"
+    type: str,  # "binary", "multiclass", or "voc"
     iteration: int = 0,
     remove_background: bool = False,
     vis: bool = False,
@@ -124,7 +127,7 @@ def generate_masks(
     envelope_scale: float = 0.1,
 ) -> None:
     """
-    Generates multi-label masks from accumulated heatmaps.
+    Generates masks from accumulated heatmaps.
 
     For each image, heatmaps from all iterations up to `iteration` are accumulated
     (using load_multilabel_mask) to produce a multi-label mask where each pixel is
@@ -141,6 +144,10 @@ def generate_masks(
             envelope begins restricting new pixels. Defaults to 2.
         envelope_scale (float, optional): Scale factor used to dilate the
             envelope relative to the current mask area. Defaults to 0.1.
+        type (str):
+            - ``"binary"``: binary mask of any activation.
+            - ``"multiclass"``: mask labeled by activation iteration.
+            - ``"voc"``: mutually exclusive multi-class mask (20 classes).
 
     Returns:
         None. The function saves the generated masks as image files.
@@ -264,6 +271,27 @@ def generate_masks(
             if vis:
                 # (iteration + 1) is the maximum label value.
                 mask = (mask / (iteration + 1)) * 255
+
+        elif type == "voc":
+            multi_label_mask = generate_exclusive_multiclass_mask_from_heatmaps(
+                base_heatmaps_dir,
+                img_name,
+                iteration=iteration,
+                threshold=threshold,
+                num_classes=20,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
+            )
+
+            heatmap = multi_label_mask.float().unsqueeze(0).unsqueeze(0)
+            resized_heatmap = F.interpolate(
+                heatmap,
+                size=mask_size,
+                mode="nearest",
+            )
+            mask = resized_heatmap.squeeze().to(torch.uint8).cpu().numpy()
+            if vis:
+                mask = (mask / 20) * 255
 
         # Save the mask. Using uint8 to store as an image.
         cv2.imwrite(mask_path, mask.astype(np.uint8))
