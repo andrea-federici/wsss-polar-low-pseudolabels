@@ -1,6 +1,6 @@
 import os
 import random
-from typing import Union
+from typing import Optional, Union
 
 import torch
 import torch.nn.functional as F
@@ -8,7 +8,9 @@ import torch.nn.functional as F
 from src.utils.constants import ITERATION_FOLDER_PREFIX, PYTORCH_EXTENSION
 
 
-def load_tensor(base_dir: str, iteration: int, img_name: str) -> torch.Tensor:
+def load_tensor(
+    base_dir: str, iteration: int, img_name: str, *, target_class: Optional[int] = None
+) -> torch.Tensor:
     """
     Load a PyTorch tensor from a specified iteration folder.
 
@@ -24,6 +26,8 @@ def load_tensor(base_dir: str, iteration: int, img_name: str) -> torch.Tensor:
         iteration (int): Non-negative index of the iteration folder to load from.
         img_name (str): Image filename (with or without extension) or full path; only the
                         base name (without extension) is used to locate the tensor.
+        target_class (int, optional): If provided, the tensor filename is expected to
+            be suffixed with ``_cls{target_class}``.
 
     Returns:
         torch.Tensor: The loaded tensor. For binary masks, convert using .bool().
@@ -37,6 +41,8 @@ def load_tensor(base_dir: str, iteration: int, img_name: str) -> torch.Tensor:
     # Remove the file extension and get the root name
     # ("data/train/image.png" -> "image")
     img_root = os.path.basename(os.path.splitext(img_name)[0])
+    if target_class is not None:
+        img_root = f"{img_root}_cls{target_class}"
 
     # Construct the tensor path
     tensor_path = os.path.join(
@@ -160,22 +166,23 @@ def load_matching_tensor(
 def load_accumulated_heatmap(
     base_heatmaps_dir: str,
     img_name: str,
-    label: int,
+    label: Union[int, bool],
     iteration: int,
     *,
     threshold: float,
     envelope_start: int = 2,
     envelope_scale: float = 0.1,
     negative_load_strategy: str = None,  # We use type str here to avoid circular
+    target_class: Optional[int] = None,
     # import. It would be better to use the enum type.
 ) -> torch.Tensor:
     """
     Load and accumulate heatmaps over multiple iterations for a given image and label.
 
     This function accumulates heatmaps from iteration 0 up to the specified iteration
-    for a given image. If the label is positive (1), it loads the heatmaps corresponding
-    to the image itself. If the label is negative (0), it loads matching heatmaps
-    based on the first six characters of the image name.
+    for a given image. If the label is truthy, it loads the heatmaps corresponding
+    to the image itself. If the label is falsy, it loads matching heatmaps based on
+    the first six characters of the image name.
 
     The accumulated heatmap is normalized to ensure values remain between 0 and 1.
     From ``envelope_start`` onward, new activations are restricted to lie within an
@@ -184,7 +191,7 @@ def load_accumulated_heatmap(
     Args:
         base_heatmaps_dir (str): The base directory containing the iteration folders.
         img_name (str): The name of the image file (including or excluding extension).
-        label (int): The class label (0 for negative, 1 for positive).
+        label (int | bool): The class label. Any truthy value is treated as positive.
         iteration (int): The highest iteration (inclusive) to consider for heatmap
             accumulation.
         threshold (float): Threshold used to binarize the accumulated heatmap at each
@@ -194,28 +201,30 @@ def load_accumulated_heatmap(
         envelope_scale (float, optional): Scale factor for the envelope radius.
             Defaults to 0.1.
         negative_load_strategy (str, optional): The strategy for loading negative samples
-            when label is 0. It can be one of the following:
+            when the label is falsy. It can be one of the following:
             - "random": Load a random heatmap from the base directory and use it for
                 all iterations.
             - "pl_specific": Load a heatmap that matches the first 6 characters of the
                 image name.
+        target_class (int, optional): Class index for multi-class datasets. When
+            provided, heatmaps are loaded using filenames suffixed with
+            ``_cls{target_class}``.
 
     Returns:
         torch.Tensor: The accumulated and normalized heatmap tensor.
 
     Raises:
-        ValueError: If `iteration` is negative, `label` is not 0 or 1, or if
-            `negative_load_strategy` is not specified for negative samples.
+        ValueError: If `iteration` is negative or if `negative_load_strategy` is not
+            specified for negative samples.
     """
     # Lazy import to avoid circular dependencies
     from src.models.erase_strategies import NegativeLoadStrategy
 
     if iteration < 0:
         raise ValueError("Iteration must be non-negative")
-    if label not in [0, 1]:
-        raise ValueError("Label must be either 0 or 1 (negative or positive)")
+    is_positive = bool(label)
 
-    if negative_load_strategy is None and label == 0:
+    if negative_load_strategy is None and not is_positive:
         raise ValueError(
             "Negative load strategy must be specified for negative samples (label=0)."
         )
@@ -227,15 +236,17 @@ def load_accumulated_heatmap(
     accumulated_heatmap = torch.zeros_like(reference_heatmap, dtype=torch.float32)
     prev_binary = torch.zeros_like(reference_heatmap, dtype=torch.bool)
 
-    if negative_load_strategy == NegativeLoadStrategy.RANDOM.value and label == 0:
+    if negative_load_strategy == NegativeLoadStrategy.RANDOM.value and not is_positive:
         random_img_name = pick_random_tensor(
             base_heatmaps_dir, iteration=0, return_path=True
         )
 
     # Iterate from 0 to iteration (inclusive) to accumulate heatmaps.
     for it in range(iteration + 1):
-        if label == 1:  # Positive sample: use its own heatmap
-            heatmap = load_tensor(base_heatmaps_dir, it, img_name)
+        if is_positive:  # Positive sample: use its own heatmap
+            heatmap = load_tensor(
+                base_heatmaps_dir, it, img_name, target_class=target_class
+            )
         else:  # Negative sample: load the matching heatmap
             if negative_load_strategy not in NegativeLoadStrategy.list():
                 raise ValueError(
@@ -265,7 +276,7 @@ def load_accumulated_heatmap(
 def load_accumulated_mask(
     base_masks_dir: str,
     img_name: str,
-    label: int,
+    label: Union[int, bool],
     iteration: int,
     negative_load_strategy: str = None,
 ) -> torch.Tensor:
@@ -273,9 +284,9 @@ def load_accumulated_mask(
     Load and accumulate binary masks over multiple iterations for a given image and label.
 
     This function accumulates binary masks from iteration 0 up to the specified iteration
-    for a given image. If the label is positive (1), it loads the masks corresponding
-    to the image itself. If the label is negative (0), it loads matching masks
-    based on the first six characters of the image name.
+    for a given image. If the label is truthy, it loads the masks corresponding
+    to the image itself. If the label is falsy, it loads matching masks based on the
+    first six characters of the image name.
 
     The accumulated mask is computed as the union (logical OR) of all masks,
     resulting in a binary tensor indicating any positive detection across iterations.
@@ -283,11 +294,11 @@ def load_accumulated_mask(
     Args:
         base_masks_dir (str): The base directory containing the iteration folders.
         img_name (str): The name of the image file (including or excluding extension).
-        label (int): The class label (0 for negative, 1 for positive).
+        label (int | bool): The class label. Any truthy value is treated as positive.
         iteration (int): The highest iteration (inclusive) to consider for mask
             accumulation.
         negative_load_strategy (str, optional): The strategy for loading negative samples
-            when label is 0. It can be one of the following:
+            when the label is falsy. It can be one of the following:
             - "random": Load a random mask from the base directory and use it for all
                 iterations.
             - "pl_specific": Load a mask that matches the first 6 characters of the
@@ -297,18 +308,17 @@ def load_accumulated_mask(
         torch.Tensor: The accumulated binary mask tensor (dtype=torch.bool).
 
     Raises:
-        ValueError: If `iteration` is negative, `label` is not 0 or 1, or if
-            `negative_load_strategy` is not specified for negative samples.
+        ValueError: If `iteration` is negative or if `negative_load_strategy` is not
+            specified for negative samples.
     """
     from src.models.erase_strategies import NegativeLoadStrategy
 
     # Validate inputs
     if iteration < 0:
         raise ValueError("Iteration must be non-negative")
-    if label not in [0, 1]:
-        raise ValueError("Label must be either 0 or 1 (negative or positive)")
+    is_positive = bool(label)
 
-    if negative_load_strategy is None and label == 0:
+    if negative_load_strategy is None and not is_positive:
         raise ValueError(
             "Negative load strategy must be specified for negative samples (label=0)."
         )
@@ -321,14 +331,14 @@ def load_accumulated_mask(
     # Initialize an all-False tensor for mask accumulation
     accumulated_mask = torch.zeros_like(reference_mask, dtype=torch.bool)
 
-    if negative_load_strategy == NegativeLoadStrategy.RANDOM.value and label == 0:
+    if negative_load_strategy == NegativeLoadStrategy.RANDOM.value and not is_positive:
         random_img_name = pick_random_tensor(
             base_masks_dir, iteration=0, return_path=True
         )
 
     # Iterate from 0 to iteration (inclusive) to accumulate masks
     for it in range(iteration + 1):
-        if label == 1:
+        if is_positive:
             mask = load_tensor(base_masks_dir, it, img_name)
         else:
             if negative_load_strategy not in NegativeLoadStrategy.list():
@@ -386,7 +396,7 @@ def _area_targeted_envelope(mask: torch.Tensor, scale: float) -> torch.Tensor:
 def generate_multiclass_mask_from_heatmaps(
     base_dir: str,
     img_name: str,
-    label: int,
+    label: Union[int, bool],
     iteration: int,
     threshold: float,
     *,
@@ -401,9 +411,9 @@ def generate_multiclass_mask_from_heatmaps(
     (included) for a given image. It then applies a threshold to identify activated
     pixels and assigns iteration indices to newly activated pixels in a multiclass mask.
 
-    - If the label is positive (1), heatmaps corresponding to the image itself are used.
-    - If the label is negative (0), heatmaps are selected based on the first six
-      characters of the image name.
+    - If the label is truthy, heatmaps corresponding to the image itself are used.
+    - If the label is falsy, heatmaps are selected based on the first six characters
+      of the image name.
 
     The function tracks newly activated pixels at each iteration and assigns them the
     corresponding iteration index, effectively capturing the progression of activations
@@ -412,7 +422,7 @@ def generate_multiclass_mask_from_heatmaps(
     Args:
         base_dir (str): The base directory containing the iteration folders.
         img_name (str): The name of the image file (including or excluding extension).
-        label (int): The class label (0 for negative, 1 for positive).
+        label (int | bool): The class label. Any truthy value is treated as positive.
         iteration (int): The highest iteration (inclusive) to consider for heatmap
             accumulation.
         threshold (float): The activation threshold for binarizing the heatmap.
@@ -426,13 +436,13 @@ def generate_multiclass_mask_from_heatmaps(
             index at which it first became active.
 
     Raises:
-        AssertionError: If the iteration is negative, the label is not 0 or 1, or the
-            threshold in not in the range [0, 1].
+        AssertionError: If the iteration is negative or the threshold is not in
+            the range [0, 1].
         FileNotFoundError: If a required heatmap file is missing.
     """
     assert iteration >= 0, "Iteration must be greater than or equal to 0"
-    assert label in [0, 1], "Label must be either 0 or 1 (negative or positive)"
     assert threshold >= 0 and threshold <= 1, "Threshold must be between 0 and 1"
+    is_positive = bool(label)
 
     # Load a reference heatmap to get the proper shape.
     reference_heatmap = pick_random_tensor(base_dir, iteration=0)
@@ -446,7 +456,7 @@ def generate_multiclass_mask_from_heatmaps(
 
     for it in range(iteration + 1):
         # Load the heatmap for the current iteration.
-        if label == 1:
+        if is_positive:
             heatmap = load_tensor(base_dir, it, img_name)
         else:
             heatmap = load_matching_tensor(base_dir, it, img_name[:6])

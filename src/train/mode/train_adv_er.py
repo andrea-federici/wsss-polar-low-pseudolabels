@@ -1,7 +1,7 @@
 import glob
 import os
 from datetime import datetime
-from typing import List, Tuple, Union
+from typing import List, Tuple, Union, Optional
 
 import cv2
 import matplotlib
@@ -32,7 +32,8 @@ def run(cfg: DictConfig) -> None:
     heatmaps_config = cfg.mode.train_config.heatmaps
 
     data_dir = cfg.data.directory
-    train_dir = os.path.join(data_dir, "train")
+    dataset_type = cfg.mode.dataset_type
+    train_dir = data_dir if dataset_type == "pascal_voc" else os.path.join(data_dir, "train")
 
     base_heatmaps_dir = heatmaps_config.base_directory
     training_size = (
@@ -74,23 +75,31 @@ def run(cfg: DictConfig) -> None:
             ),
             "val",
         )
-        _generate_and_save_heatmaps(
-            lightning_model.model,
-            data_dir=train_dir,
-            transform=heatmap_load_transform,
-            base_heatmaps_dir=base_heatmaps_dir,
-            iteration=iteration,
-            envelope_start=envelope_start,
-            envelope_scale=envelope_scale,
-            save_dir=current_heatmaps_dir,
-            target_size=training_size,
-            super_sizes=heatmaps_config.get("super_sizes", []),
-            attribution=heatmaps_config.attribution,
-            threshold=threshold,
-            fill_color=heatmaps_config.fill_color,
-            logger=logger,
-            device=cfg.hardware.device,
+        class_range = (
+            range(cfg.training.num_classes)
+            if dataset_type == "pascal_voc"
+            else [1]
         )
+        for cls in class_range:
+            _generate_and_save_heatmaps(
+                lightning_model.model,
+                data_dir=train_dir,
+                transform=heatmap_load_transform,
+                base_heatmaps_dir=base_heatmaps_dir,
+                iteration=iteration,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
+                save_dir=current_heatmaps_dir,
+                target_size=training_size,
+                super_sizes=heatmaps_config.get("super_sizes", []),
+                attribution=heatmaps_config.attribution,
+                threshold=threshold,
+                fill_color=heatmaps_config.fill_color,
+                logger=logger,
+                device=cfg.hardware.device,
+                target_class=cls,
+                dataset_type=dataset_type,
+            )
 
         if iteration > 0:
             sample_paths = sorted(glob.glob(os.path.join(train_dir, "pos", "*.png")))[
@@ -117,7 +126,9 @@ def run(cfg: DictConfig) -> None:
     # Generate masks
     mask_dir = cfg.mode.masks.save_directory
     remove_background = cfg.mode.masks.remove_background
-    negative_dir = os.path.join(train_dir, "neg")
+    negative_dir = (
+        os.path.join(train_dir, "neg") if dataset_type != "pascal_voc" else None
+    )
 
     area_cfg = cfg.mode.train_config.heatmaps.get("area_envelope", {})
     envelope_start = area_cfg.get("start_iteration", 2)
@@ -186,20 +197,20 @@ def run(cfg: DictConfig) -> None:
 
         ## NEGATIVE ##
         # Negative images are only generated for the non-visualizable folder
+        if negative_dir and os.path.isdir(negative_dir):
+            # Binary
+            generate_negative_masks(
+                negative_images_dir=negative_dir,
+                mask_dir=f"{mask_dir}/binary/iteration_{iteration}/non_vis",
+                mask_size=training_size,
+            )
 
-        # Binary
-        generate_negative_masks(
-            negative_images_dir=negative_dir,
-            mask_dir=f"{mask_dir}/binary/iteration_{iteration}/non_vis",
-            mask_size=training_size,
-        )
-
-        # Multi-class
-        generate_negative_masks(
-            negative_images_dir=negative_dir,
-            mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/non_vis",
-            mask_size=training_size,
-        )
+            # Multi-class
+            generate_negative_masks(
+                negative_images_dir=negative_dir,
+                mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/non_vis",
+                mask_size=training_size,
+            )
 
 
 # TODO: while the entire adversarial erasing pipeline is flexible and can be used with
@@ -225,6 +236,7 @@ def _generate_and_save_heatmaps(
     batch_size: int = 32,
     num_workers: int = 4,
     device: str = "cpu",
+    dataset_type: str = "adversarial_erasing",
 ):
     was_training = model.training
     model.eval()
@@ -239,7 +251,7 @@ def _generate_and_save_heatmaps(
             target_class=target_class,
             batch_size=batch_size,
             num_workers=num_workers,
-            dataset_type="adversarial_erasing",
+            dataset_type=dataset_type,
             shuffle=False,
         )
         os.makedirs(save_dir, exist_ok=True)
@@ -258,7 +270,12 @@ def _generate_and_save_heatmaps(
                 for i, (image, label, img_path) in enumerate(
                     zip(images, labels, img_paths)
                 ):
-                    assert label == 1, "Label should be 1 here."
+                    if dataset_type == "pascal_voc":
+                        assert label[target_class] == 1, "Image missing target class"
+                        lbl_val = 1
+                    else:
+                        assert label == 1, "Label should be 1 here."
+                        lbl_val = label
                     count += 1
                     img = image.unsqueeze(0)
 
@@ -266,11 +283,12 @@ def _generate_and_save_heatmaps(
                         accumulated_heatmap = load_accumulated_heatmap(
                             base_heatmaps_dir,
                             img_path,
-                            label,
+                            lbl_val,
                             iteration - 1,
                             threshold=threshold,
                             envelope_start=envelope_start,
                             envelope_scale=envelope_scale,
+                            target_class=target_class,
                         )
 
                         img = erase_region_using_heatmap(
@@ -307,9 +325,9 @@ def _generate_and_save_heatmaps(
 
                     # Do inference
                     logits = model(resized_img)
-                    probs = torch.softmax(logits, dim=1)
+                    probs = torch.sigmoid(logits)
                     pos_prob = probs[0, target_class].item()
-                    pred = torch.argmax(logits).item()
+                    pred = int(pos_prob >= threshold)
 
                     # Calculate necessity drop
                     next_img = erase_region_using_heatmap(
@@ -324,23 +342,28 @@ def _generate_and_save_heatmaps(
                     # Log heatmap and image overlay to Neptune, just for batch 0
                     if batch_idx == 0:
                         logger.log_tensor_img(
-                            img_overlay, name=f"heatmap_{img_name}_{suffix}"
+                            img_overlay,
+                            name=f"heatmap_cls{target_class}_{img_name}_{suffix}",
                         )
                         for s in sorted(intermediates.keys()):
                             hm = intermediates[s].unsqueeze(0).unsqueeze(0).cpu()
                             logger.log_tensor_img(
                                 hm,
-                                name=f"intermediates/heatmap_{img_name}_{s}_{suffix}",
+                                name=f"intermediates/heatmap_cls{target_class}_{img_name}_{s}_{suffix}",
                             )
 
                     # Generate transparent heatmap if prediction is negative
                     if pred == 0:
-                        print(f"Iteration: {iteration}. Negative: {img_path}")
+                        print(
+                            f"Iteration: {iteration}. Negative: {img_path} class {target_class}"
+                        )
                         neg_count += 1
                         heatmap = torch.zeros_like(heatmap)
 
                     # Save heatmap
-                    _save_heatmap(heatmap, save_dir, img_name, pred)
+                    _save_heatmap(
+                        heatmap, save_dir, img_name, pred, target_class=target_class
+                    )
 
         # TODO: I could group the metrics in a subfolder
         correct_count = count - neg_count
@@ -356,7 +379,12 @@ def _generate_and_save_heatmaps(
 
 
 def _save_heatmap(
-    heatmap: torch.Tensor, save_dir: str, img_name: str, pred: int
+    heatmap: torch.Tensor,
+    save_dir: str,
+    img_name: str,
+    pred: int,
+    *,
+    target_class: Optional[int] = None,
 ) -> None:
     """
     Save the heatmap to the specified directory in both .pt and .png formats.
@@ -383,12 +411,15 @@ def _save_heatmap(
     # Ensure the save directory exists
     os.makedirs(save_dir, exist_ok=True)
 
+    # Adjust filename for class-aware datasets
+    base_name = f"{img_name}_cls{target_class}" if target_class is not None else img_name
+
     # Save .pt file
-    heatmap_filename_pt = os.path.join(save_dir, f"{img_name}.pt")
+    heatmap_filename_pt = os.path.join(save_dir, f"{base_name}.pt")
     torch.save(heatmap, heatmap_filename_pt)
 
     # Save .png file, just for debugging purposes
-    heatmap_filename_png = os.path.join(save_dir, f"{img_name}_pred_{pred}.png")
+    heatmap_filename_png = os.path.join(save_dir, f"{base_name}_pred_{pred}.png")
     heatmap_np = heatmap.detach().cpu().numpy()
     plt.imsave(heatmap_filename_png, heatmap_np, cmap="jet")
 

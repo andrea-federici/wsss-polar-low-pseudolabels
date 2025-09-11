@@ -4,3 +4,8 @@ defaults:
   - data: pascal_voc
   - mode: adversarial_erasing
   - training: pascal_voc
+
+mode:
+  dataset_type: pascal_voc
+  masks:
+    remove_background: false

@@ -2,10 +2,9 @@ import os
 from collections import defaultdict
 from typing import List
 
-from PIL import Image
 import torch
+from PIL import Image
 from torch.utils.data import Dataset
-
 
 PASCAL_VOC_CLASSES: List[str] = [
     "aeroplane",
@@ -34,7 +33,7 @@ PASCAL_VOC_CLASSES: List[str] = [
 class PascalVOCDataset(Dataset):
     """Pascal VOC multi-label dataset.
 
-    Expected directory structure::
+    Expected directory structure:
 
         root/
             JPEGImages/

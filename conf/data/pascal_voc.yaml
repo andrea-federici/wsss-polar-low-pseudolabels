@@ -2,7 +2,7 @@
 
 # Root directory containing PASCAL VOC 2012 data
 # Adjust if dataset is stored elsewhere
-directory: data/PASCAL_VOC2012
+directory: data/VOC2012
 original_width: 500
 original_height: 375
 

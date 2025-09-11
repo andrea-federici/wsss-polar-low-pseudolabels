@@ -76,27 +76,53 @@ class HeatmapEraseStrategy(BaseEraseStrategy):
         img: torch.Tensor,
         *,
         img_name: str,
-        label: int,
+        label,
         current_iteration: int,
     ) -> torch.Tensor:
         if current_iteration > 0:
-            accumulated_heatmap = load_accumulated_heatmap(
-                self.base_dir,
-                img_name,
-                label,
-                current_iteration - 1,
-                threshold=self.heatmap_threshold,
-                envelope_start=self.envelope_start,
-                envelope_scale=self.envelope_scale,
-                negative_load_strategy=self.negative_load_strategy.value,
-            )
+            # TODO: instead of first accumulating all the heatmaps for every class and then erasing,
+            # we might want to accumulate the heatmaps for each class, and perform the erasure for
+            # each class, so that the erasure is summed, and not the heatmaps.
+            if isinstance(label, torch.Tensor) and label.ndim > 0:
+                # pos_classes contains all the indices where the corresponding value v in label is non-zero
+                pos_classes = [i for i, v in enumerate(label) if bool(v)]
+                accumulated_heatmap = None
+                for cls in pos_classes:
+                    hm = load_accumulated_heatmap(
+                        self.base_dir,
+                        img_name,
+                        True,
+                        current_iteration - 1,
+                        threshold=self.heatmap_threshold,
+                        envelope_start=self.envelope_start,
+                        envelope_scale=self.envelope_scale,
+                        negative_load_strategy=self.negative_load_strategy.value,
+                        target_class=cls,
+                    )
+                    accumulated_heatmap = (
+                        hm
+                        if accumulated_heatmap is None
+                        else torch.clamp(accumulated_heatmap + hm, 0, 1)
+                    )
+            else:
+                accumulated_heatmap = load_accumulated_heatmap(
+                    self.base_dir,
+                    img_name,
+                    label,
+                    current_iteration - 1,
+                    threshold=self.heatmap_threshold,
+                    envelope_start=self.envelope_start,
+                    envelope_scale=self.envelope_scale,
+                    negative_load_strategy=self.negative_load_strategy.value,
+                )
 
-            img = erase_region_using_heatmap(
-                img.unsqueeze(0),
-                accumulated_heatmap,
-                threshold=self.heatmap_threshold,
-                fill_color=self.fill_color,
-            ).squeeze(0)
+            if accumulated_heatmap is not None:
+                img = erase_region_using_heatmap(
+                    img.unsqueeze(0),
+                    accumulated_heatmap,
+                    threshold=self.heatmap_threshold,
+                    fill_color=self.fill_color,
+                ).squeeze(0)
         return img
 
 
