@@ -11,14 +11,14 @@ from src import data
 _DATASET_REGISTRY = {
     "standard": {
         "dataset_class": datasets.ImageFolder,
-        "kwargs": lambda data_dir, transform: {
+        "kwargs": lambda data_dir, transform, split=None: {
             "root": data_dir,
             "transform": transform,
         },
     },
     "adversarial_erasing": {
         "dataset_class": data.custom_datasets.ImageFilenameDataset,
-        "kwargs": lambda data_dir, transform: {
+        "kwargs": lambda data_dir, transform, split=None: {
             "root": data_dir,
             "transform": transform,
         },
@@ -118,7 +118,8 @@ def create_data_loaders(
 
         ## LOAD VAL DATA ##
         val_data = Subset(
-            entry["dataset_class"](**entry["kwargs"](train_dir, transform_val)), val_indices
+            entry["dataset_class"](**entry["kwargs"](train_dir, transform_val)),
+            val_indices,
         )
 
         ## LOAD TEST DATA ##
@@ -130,7 +131,9 @@ def create_data_loaders(
         )
 
         # Assign weights to each sample
-        sample_weights = [class_weights[train_val_data.targets[i]] for i in train_indices]
+        sample_weights = [
+            class_weights[train_val_data.targets[i]] for i in train_indices
+        ]
 
         sampler = WeightedRandomSampler(
             weights=sample_weights, num_samples=len(sample_weights), replacement=True
@@ -185,6 +188,7 @@ def create_class_dataloader(
     transform: transforms.Compose,
     dataset_type: str = "standard",
     shuffle: bool = False,
+    split: str = "train",
 ) -> DataLoader:
     """
     Creates a DataLoader for samples belonging to a specific target class from the dataset.
@@ -202,6 +206,8 @@ def create_class_dataloader(
         dataset_type (str, optional): Type of dataset to load. Must be a key in `_DATASET_REGISTRY`.
             Defaults to "standard".
         shuffle (bool, optional): Whether to shuffle the data each epoch. Defaults to False.
+        split (str, optional): Dataset split to load. Only relevant for datasets that
+            support predefined splits. Defaults to "train".
 
     Returns:
         DataLoader: A DataLoader containing only the samples of the specified target class.
@@ -216,14 +222,16 @@ def create_class_dataloader(
         )
 
     entry = _DATASET_REGISTRY[dataset_type]
-    ds = entry["dataset_class"](**entry["kwargs"](data_dir, transform))
+    ds = entry["dataset_class"](**entry["kwargs"](data_dir, transform, split=split))
 
     if entry.get("multi_label", False):
         class_indices = [
             i for i, label in enumerate(ds.targets) if label[target_class] == 1
         ]
     else:
-        class_indices = [i for i, label in enumerate(ds.targets) if label == target_class]
+        class_indices = [
+            i for i, label in enumerate(ds.targets) if label == target_class
+        ]
 
     class_data = Subset(ds, class_indices)
     return DataLoader(

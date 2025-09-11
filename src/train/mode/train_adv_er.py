@@ -2,20 +2,18 @@ import glob
 import os
 import warnings
 from datetime import datetime
-from typing import List, Tuple, Union, Optional
+from typing import List, Optional, Tuple, Union
 
 import cv2
-import matplotlib
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
 import torch.nn.functional as F
 from omegaconf import DictConfig
 from torchvision import transforms
 from tqdm import tqdm
 
-import src.attributions.gradcam as gradcam
 import src.attributions.cam as cam
+import src.attributions.gradcam as gradcam
 import src.data.augmentation as aug
 from src.data.adversarial_erasing_io import (
     _area_targeted_envelope,
@@ -37,7 +35,7 @@ def run(cfg: DictConfig) -> None:
     train_dir = (
         data_dir if dataset_type == "pascal_voc" else os.path.join(data_dir, "train")
     )
-    splits = ["train"]
+    splits = []  # ["train"]
     val_dir_path = os.path.join(data_dir, "val")
     if dataset_type == "pascal_voc" or os.path.isdir(val_dir_path):
         splits.append("val")
@@ -84,13 +82,9 @@ def run(cfg: DictConfig) -> None:
             "val",
         )
         class_range = (
-            range(cfg.training.num_classes)
-            if dataset_type == "pascal_voc"
-            else [1]
+            range(cfg.training.num_classes) if dataset_type == "pascal_voc" else [1]
         )
-        current_heatmaps_dir = os.path.join(
-            base_heatmaps_dir, f"iteration_{iteration}"
-        )
+        current_heatmaps_dir = os.path.join(base_heatmaps_dir, f"iteration_{iteration}")
         os.makedirs(current_heatmaps_dir, exist_ok=True)
         for split in splits:
             split_data_dir = (
@@ -117,6 +111,7 @@ def run(cfg: DictConfig) -> None:
                     device=cfg.hardware.device,
                     target_class=cls,
                     dataset_type=dataset_type,
+                    split=split,
                 )
 
         if iteration > 0:
@@ -261,6 +256,7 @@ def _generate_and_save_heatmaps(
     num_workers: int = 4,
     device: str = "cpu",
     dataset_type: str = "adversarial_erasing",
+    split: str = "train",
 ):
     was_training = model.training
     model.eval()
@@ -269,6 +265,8 @@ def _generate_and_save_heatmaps(
     model = model.to(device)
 
     try:
+        # TODO: here I am passing split=split even for datasets that don't support it. Examine
+        # whether it causes problems.
         dataloader = create_class_dataloader(
             data_dir=data_dir,
             transform=transform,
@@ -277,6 +275,7 @@ def _generate_and_save_heatmaps(
             num_workers=num_workers,
             dataset_type=dataset_type,
             shuffle=False,
+            split=split,
         )
         os.makedirs(save_dir, exist_ok=True)
 
@@ -436,7 +435,9 @@ def _save_heatmap(
     os.makedirs(save_dir, exist_ok=True)
 
     # Adjust filename for class-aware datasets
-    base_name = f"{img_name}_cls{target_class}" if target_class is not None else img_name
+    base_name = (
+        f"{img_name}_cls{target_class}" if target_class is not None else img_name
+    )
 
     # Save .pt file
     heatmap_filename_pt = os.path.join(save_dir, f"{base_name}.pt")

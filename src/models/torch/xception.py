@@ -20,11 +20,11 @@ class Xception(nn.Module):
             nn.Linear(in_features=2048, out_features=32),
             nn.BatchNorm1d(32),
             nn.ReLU(inplace=True),
-            nn.Dropout(p=0.5),
+            nn.Dropout(p=0.2),  # 0.5
             nn.Linear(32, 16),
             nn.BatchNorm1d(16),
             nn.ReLU(inplace=True),
-            nn.Dropout(p=0.5),
+            nn.Dropout(p=0.2),  # 0.5
             nn.Linear(16, num_classes),
         )
 
