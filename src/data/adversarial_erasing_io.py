@@ -488,6 +488,88 @@ def generate_multiclass_mask_from_heatmaps(
     return multiclass_mask
 
 
+def generate_exclusive_multiclass_mask_from_heatmaps(
+    base_dir: str,
+    img_name: str,
+    iteration: int,
+    threshold: float,
+    *,
+    num_classes: int,
+    envelope_start: int = 2,
+    envelope_scale: float = 0.1,
+) -> torch.Tensor:
+    """Build a mutually exclusive mask by growing all classes iteratively.
+
+    Heatmaps are stored separately for each class as ``<img_name>_cls{c}.pt``
+    inside iteration subfolders. For every adversarial-erasing step ``i`` from
+    ``0`` to ``iteration``, this function:
+
+    1. Accumulates heatmaps for class ``c`` up to iteration ``i`` using
+       :func:`load_accumulated_heatmap`.
+    2. Extracts the new pixels activated at this step (i.e. pixels that were not
+       active for class ``c`` at step ``i-1``).
+    3. Lets class ``c`` claim those new pixels only if they have not been
+       previously claimed by any other class.
+
+    By updating the global mask step-by-step, all classes can establish their
+    main regions early, and noisy late-stage activations only affect previously
+    unclaimed areas.
+
+    Args:
+        base_dir: Root directory containing per-iteration heatmaps.
+        img_name: Base image name (without ``_cls{c}`` suffix).
+        iteration: Highest adversarial-erasing iteration to consider (inclusive).
+        threshold: Activation threshold for binarising heatmaps.
+        num_classes: Number of foreground classes.
+        envelope_start: Iteration at which the area-targeted envelope begins.
+        envelope_scale: Scale factor for the envelope dilation radius.
+
+    Returns:
+        torch.Tensor: Single-channel mask of shape ``(H, W)`` with values in
+        ``[0, num_classes]`` where ``0`` denotes background and ``1..num_classes``
+        correspond to class indices ``0..num_classes-1`` respectively.
+
+    """
+
+    assert iteration >= 0, "Iteration must be greater than or equal to 0"
+    assert 0 <= threshold <= 1, "Threshold must be between 0 and 1"
+
+    # Load one heatmap to determine spatial dimensions.
+    reference_heatmap = pick_random_tensor(base_dir, iteration=0)
+    final_mask = torch.zeros_like(reference_heatmap, dtype=torch.uint8)
+    occupied = torch.zeros_like(reference_heatmap, dtype=torch.bool)
+    prev_masks = [torch.zeros_like(reference_heatmap, dtype=torch.bool) for _ in range(num_classes)]
+
+    for it in range(iteration + 1):
+        for cls in range(num_classes):
+            try:
+                accum = load_accumulated_heatmap(
+                    base_dir,
+                    img_name,
+                    label=1,
+                    iteration=it,
+                    threshold=threshold,
+                    envelope_start=envelope_start,
+                    envelope_scale=envelope_scale,
+                    target_class=cls,
+                )
+            except FileNotFoundError:
+                # Skip classes without heatmaps at this iteration
+                continue
+
+            class_mask = accum > threshold
+            # Pixels newly activated for this class at iteration ``it``
+            new_class_pixels = class_mask & (~prev_masks[cls])
+            prev_masks[cls] = class_mask
+
+            # Only claim pixels not yet taken by another class
+            new_pixels = new_class_pixels & (~occupied)
+            final_mask[new_pixels] = cls + 1
+            occupied |= new_pixels
+
+    return final_mask
+
+
 def generate_multiclass_mask_from_masks(
     base_dir: str,
     img_name: str,
