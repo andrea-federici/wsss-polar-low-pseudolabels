@@ -1,5 +1,6 @@
 import glob
 import os
+import warnings
 from datetime import datetime
 from typing import List, Tuple, Union, Optional
 
@@ -33,7 +34,17 @@ def run(cfg: DictConfig) -> None:
 
     data_dir = cfg.data.directory
     dataset_type = cfg.mode.dataset_type
-    train_dir = data_dir if dataset_type == "pascal_voc" else os.path.join(data_dir, "train")
+    train_dir = (
+        data_dir if dataset_type == "pascal_voc" else os.path.join(data_dir, "train")
+    )
+    splits = ["train"]
+    val_dir_path = os.path.join(data_dir, "val")
+    if dataset_type == "pascal_voc" or os.path.isdir(val_dir_path):
+        splits.append("val")
+    else:
+        warnings.warn(
+            f"Validation directory '{val_dir_path}' not found. Skipping 'val' split."
+        )
 
     base_heatmaps_dir = heatmaps_config.base_directory
     training_size = (
@@ -57,9 +68,6 @@ def run(cfg: DictConfig) -> None:
         logger.experiment["iteration"] = iteration
         logger.experiment["start_time"] = datetime.now().isoformat()
 
-        current_heatmaps_dir = os.path.join(base_heatmaps_dir, f"iteration_{iteration}")
-        os.makedirs(current_heatmaps_dir, exist_ok=True)
-
         # Remember that Lightning automatically moves the model to "cuda" if available,
         # and then moves the model back to "cpu" after training, even if the model was
         # on the "cuda" device before calling the fit() function.
@@ -80,26 +88,36 @@ def run(cfg: DictConfig) -> None:
             if dataset_type == "pascal_voc"
             else [1]
         )
-        for cls in class_range:
-            _generate_and_save_heatmaps(
-                lightning_model.model,
-                data_dir=train_dir,
-                transform=heatmap_load_transform,
-                base_heatmaps_dir=base_heatmaps_dir,
-                iteration=iteration,
-                envelope_start=envelope_start,
-                envelope_scale=envelope_scale,
-                save_dir=current_heatmaps_dir,
-                target_size=training_size,
-                super_sizes=heatmaps_config.get("super_sizes", []),
-                attribution=heatmaps_config.attribution,
-                threshold=threshold,
-                fill_color=heatmaps_config.fill_color,
-                logger=logger,
-                device=cfg.hardware.device,
-                target_class=cls,
-                dataset_type=dataset_type,
+        current_heatmaps_dir = os.path.join(
+            base_heatmaps_dir, f"iteration_{iteration}"
+        )
+        os.makedirs(current_heatmaps_dir, exist_ok=True)
+        for split in splits:
+            split_data_dir = (
+                data_dir
+                if dataset_type == "pascal_voc"
+                else os.path.join(data_dir, split)
             )
+            for cls in class_range:
+                _generate_and_save_heatmaps(
+                    lightning_model.model,
+                    data_dir=split_data_dir,
+                    transform=heatmap_load_transform,
+                    base_heatmaps_dir=base_heatmaps_dir,
+                    iteration=iteration,
+                    envelope_start=envelope_start,
+                    envelope_scale=envelope_scale,
+                    save_dir=current_heatmaps_dir,
+                    target_size=training_size,
+                    super_sizes=heatmaps_config.get("super_sizes", []),
+                    attribution=heatmaps_config.attribution,
+                    threshold=threshold,
+                    fill_color=heatmaps_config.fill_color,
+                    logger=logger,
+                    device=cfg.hardware.device,
+                    target_class=cls,
+                    dataset_type=dataset_type,
+                )
 
         if iteration > 0:
             sample_paths = sorted(glob.glob(os.path.join(train_dir, "pos", "*.png")))[
@@ -126,9 +144,6 @@ def run(cfg: DictConfig) -> None:
     # Generate masks
     mask_dir = cfg.mode.masks.save_directory
     remove_background = cfg.mode.masks.remove_background
-    negative_dir = (
-        os.path.join(train_dir, "neg") if dataset_type != "pascal_voc" else None
-    )
 
     area_cfg = cfg.mode.train_config.heatmaps.get("area_envelope", {})
     envelope_start = area_cfg.get("start_iteration", 2)
@@ -136,81 +151,90 @@ def run(cfg: DictConfig) -> None:
 
     os.makedirs(mask_dir, exist_ok=True)
 
-    for iteration in range(0, max_iterations):
-        ## BINARY ##
-        # Visualizable (just for debugging)
-        generate_masks(
-            base_heatmaps_dir=base_heatmaps_dir,
-            mask_dir=f"{mask_dir}/binary/iteration_{iteration}/vis",
-            mask_size=training_size,
-            threshold=threshold,
-            type="binary",
-            iteration=iteration,
-            remove_background=remove_background,
-            vis=True,
-            envelope_start=envelope_start,
-            envelope_scale=envelope_scale,
+    for split in splits:
+        split_mask_dir = os.path.join(mask_dir, split)
+        os.makedirs(split_mask_dir, exist_ok=True)
+        negative_dir = (
+            os.path.join(data_dir, split, "neg")
+            if split == "train" and dataset_type != "pascal_voc"
+            else None
         )
 
-        # Non-visualizable (for training)
-        generate_masks(
-            base_heatmaps_dir=base_heatmaps_dir,
-            mask_dir=f"{mask_dir}/binary/iteration_{iteration}/non_vis",
-            mask_size=training_size,
-            threshold=threshold,
-            type="binary",
-            iteration=iteration,
-            remove_background=remove_background,
-            vis=False,
-            envelope_start=envelope_start,
-            envelope_scale=envelope_scale,
-        )
-
-        ## MULTI-CLASS ##
-        # Visualizable (just for debugging)
-        generate_masks(
-            base_heatmaps_dir=base_heatmaps_dir,
-            mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/vis",
-            mask_size=training_size,
-            threshold=threshold,
-            type="multiclass",
-            iteration=iteration,
-            remove_background=remove_background,
-            vis=True,
-            envelope_start=envelope_start,
-            envelope_scale=envelope_scale,
-        )
-
-        # Non-visualizable (for training)
-        generate_masks(
-            base_heatmaps_dir=base_heatmaps_dir,
-            mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/non_vis",
-            mask_size=training_size,
-            threshold=threshold,
-            type="multiclass",
-            iteration=iteration,
-            remove_background=remove_background,
-            vis=False,
-            envelope_start=envelope_start,
-            envelope_scale=envelope_scale,
-        )
-
-        ## NEGATIVE ##
-        # Negative images are only generated for the non-visualizable folder
-        if negative_dir and os.path.isdir(negative_dir):
-            # Binary
-            generate_negative_masks(
-                negative_images_dir=negative_dir,
-                mask_dir=f"{mask_dir}/binary/iteration_{iteration}/non_vis",
+        for iteration in range(0, max_iterations):
+            ## BINARY ##
+            # Visualizable (just for debugging)
+            generate_masks(
+                base_heatmaps_dir=base_heatmaps_dir,
+                mask_dir=f"{split_mask_dir}/binary/iteration_{iteration}/vis",
                 mask_size=training_size,
+                threshold=threshold,
+                type="binary",
+                iteration=iteration,
+                remove_background=remove_background,
+                vis=True,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
             )
 
-            # Multi-class
-            generate_negative_masks(
-                negative_images_dir=negative_dir,
-                mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/non_vis",
+            # Non-visualizable (for training)
+            generate_masks(
+                base_heatmaps_dir=base_heatmaps_dir,
+                mask_dir=f"{split_mask_dir}/binary/iteration_{iteration}/non_vis",
                 mask_size=training_size,
+                threshold=threshold,
+                type="binary",
+                iteration=iteration,
+                remove_background=remove_background,
+                vis=False,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
             )
+
+            ## MULTI-CLASS ##
+            # Visualizable (just for debugging)
+            generate_masks(
+                base_heatmaps_dir=base_heatmaps_dir,
+                mask_dir=f"{split_mask_dir}/multiclass/iteration_{iteration}/vis",
+                mask_size=training_size,
+                threshold=threshold,
+                type="multiclass",
+                iteration=iteration,
+                remove_background=remove_background,
+                vis=True,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
+            )
+
+            # Non-visualizable (for training)
+            generate_masks(
+                base_heatmaps_dir=base_heatmaps_dir,
+                mask_dir=f"{split_mask_dir}/multiclass/iteration_{iteration}/non_vis",
+                mask_size=training_size,
+                threshold=threshold,
+                type="multiclass",
+                iteration=iteration,
+                remove_background=remove_background,
+                vis=False,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
+            )
+
+            ## NEGATIVE ##
+            # Negative images are only generated for the non-visualizable folder
+            if negative_dir and os.path.isdir(negative_dir):
+                # Binary
+                generate_negative_masks(
+                    negative_images_dir=negative_dir,
+                    mask_dir=f"{split_mask_dir}/binary/iteration_{iteration}/non_vis",
+                    mask_size=training_size,
+                )
+
+                # Multi-class
+                generate_negative_masks(
+                    negative_images_dir=negative_dir,
+                    mask_dir=f"{split_mask_dir}/multiclass/iteration_{iteration}/non_vis",
+                    mask_size=training_size,
+                )
 
 
 # TODO: while the entire adversarial erasing pipeline is flexible and can be used with
