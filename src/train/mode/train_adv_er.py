@@ -35,7 +35,7 @@ def run(cfg: DictConfig) -> None:
     train_dir = (
         data_dir if dataset_type == "pascal_voc" else os.path.join(data_dir, "train")
     )
-    splits = []  # ["train"]
+    splits = ["train"]
     val_dir_path = os.path.join(data_dir, "val")
     if dataset_type == "pascal_voc" or os.path.isdir(val_dir_path):
         splits.append("val")
