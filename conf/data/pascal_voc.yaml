@@ -1,7 +1,6 @@
-# Pascal VOC 2012 dataset configuration
+defaults:
+  - polar_lows
 
-# Root directory containing PASCAL VOC 2012 data
-# Adjust if dataset is stored elsewhere
 directory: data/VOC2012
 original_width: 500
 original_height: 375
@@ -40,7 +39,9 @@ transforms:
 
   # Example data augmentation
   augmentation:
-    horizontal_flip: true
-    degrees: 15
     translate_frac: 0.1
+    degrees: 15
     scale: [0.8, 1.2]
+    vertical_flip: false
+    random_erasing:
+      p: 0.0

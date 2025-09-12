@@ -7,5 +7,10 @@ defaults:
 
 mode:
   dataset_type: pascal_voc
+  train_config:
+    max_iterations: 6
+    heatmaps:
+      area_envelope:
+        scale: 0.4
   masks:
     remove_background: false

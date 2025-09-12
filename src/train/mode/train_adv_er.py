@@ -145,51 +145,46 @@ def run(cfg: DictConfig) -> None:
     envelope_scale = area_cfg.get("scale", 0.1)
 
     os.makedirs(mask_dir, exist_ok=True)
+    negative_dir = (
+        os.path.join(data_dir, "train", "neg") if dataset_type != "pascal_voc" else None
+    )
 
-    for split in splits:
-        split_mask_dir = os.path.join(mask_dir, split)
-        os.makedirs(split_mask_dir, exist_ok=True)
-        negative_dir = (
-            os.path.join(data_dir, split, "neg")
-            if split == "train" and dataset_type != "pascal_voc"
-            else None
+    for iteration in range(0, max_iterations):
+        ## BINARY ##
+        # Visualizable (just for debugging)
+        generate_masks(
+            base_heatmaps_dir=base_heatmaps_dir,
+            mask_dir=f"{mask_dir}/binary/iteration_{iteration}/vis",
+            mask_size=training_size,
+            threshold=threshold,
+            type="binary" if dataset_type != "pascal_voc" else "voc",
+            iteration=iteration,
+            remove_background=remove_background,
+            vis=True,
+            envelope_start=envelope_start,
+            envelope_scale=envelope_scale,
         )
 
-        for iteration in range(0, max_iterations):
-            ## BINARY ##
-            # Visualizable (just for debugging)
-            generate_masks(
-                base_heatmaps_dir=base_heatmaps_dir,
-                mask_dir=f"{split_mask_dir}/binary/iteration_{iteration}/vis",
-                mask_size=training_size,
-                threshold=threshold,
-                type="binary",
-                iteration=iteration,
-                remove_background=remove_background,
-                vis=True,
-                envelope_start=envelope_start,
-                envelope_scale=envelope_scale,
-            )
+        # Non-visualizable (for training)
+        generate_masks(
+            base_heatmaps_dir=base_heatmaps_dir,
+            mask_dir=f"{mask_dir}/binary/iteration_{iteration}/non_vis",
+            mask_size=training_size,
+            threshold=threshold,
+            type="binary" if dataset_type != "pascal_voc" else "voc",
+            iteration=iteration,
+            remove_background=remove_background,
+            vis=False,
+            envelope_start=envelope_start,
+            envelope_scale=envelope_scale,
+        )
 
-            # Non-visualizable (for training)
-            generate_masks(
-                base_heatmaps_dir=base_heatmaps_dir,
-                mask_dir=f"{split_mask_dir}/binary/iteration_{iteration}/non_vis",
-                mask_size=training_size,
-                threshold=threshold,
-                type="binary",
-                iteration=iteration,
-                remove_background=remove_background,
-                vis=False,
-                envelope_start=envelope_start,
-                envelope_scale=envelope_scale,
-            )
-
+        if dataset_type != "pascal_voc":
             ## MULTI-CLASS ##
             # Visualizable (just for debugging)
             generate_masks(
                 base_heatmaps_dir=base_heatmaps_dir,
-                mask_dir=f"{split_mask_dir}/multiclass/iteration_{iteration}/vis",
+                mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/vis",
                 mask_size=training_size,
                 threshold=threshold,
                 type="multiclass",
@@ -203,7 +198,7 @@ def run(cfg: DictConfig) -> None:
             # Non-visualizable (for training)
             generate_masks(
                 base_heatmaps_dir=base_heatmaps_dir,
-                mask_dir=f"{split_mask_dir}/multiclass/iteration_{iteration}/non_vis",
+                mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/non_vis",
                 mask_size=training_size,
                 threshold=threshold,
                 type="multiclass",
@@ -220,14 +215,14 @@ def run(cfg: DictConfig) -> None:
                 # Binary
                 generate_negative_masks(
                     negative_images_dir=negative_dir,
-                    mask_dir=f"{split_mask_dir}/binary/iteration_{iteration}/non_vis",
+                    mask_dir=f"{mask_dir}/binary/iteration_{iteration}/non_vis",
                     mask_size=training_size,
                 )
 
                 # Multi-class
                 generate_negative_masks(
                     negative_images_dir=negative_dir,
-                    mask_dir=f"{split_mask_dir}/multiclass/iteration_{iteration}/non_vis",
+                    mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/non_vis",
                     mask_size=training_size,
                 )
 
@@ -290,7 +285,7 @@ def _generate_and_save_heatmaps(
                 images = images.to(device)
 
                 # Loop through images in batch
-                for i, (image, label, img_path) in enumerate(
+                for img_idx, (image, label, img_path) in enumerate(
                     zip(images, labels, img_paths)
                 ):
                     if dataset_type == "pascal_voc":
@@ -363,7 +358,7 @@ def _generate_and_save_heatmaps(
                     suffix = f"{pred}_{pos_prob:.3f}_{drop:.3f}"
 
                     # Log heatmap and image overlay to Neptune, just for batch 0
-                    if batch_idx == 0:
+                    if batch_idx == 0 and img_idx < 5:
                         logger.log_tensor_img(
                             img_overlay,
                             name=f"heatmap_cls{target_class}_{img_name}_{suffix}",
