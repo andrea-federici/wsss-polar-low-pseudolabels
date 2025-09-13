@@ -392,11 +392,12 @@ def _generate_and_save_heatmaps(
                     )
 
         # TODO: I could group the metrics in a subfolder
+        prefix = f"Target_{target_class}_"
         correct_count = count - neg_count
         accuracy_pct = 100.0 * correct_count / float(count)
-        logger.experiment["Count"] = count
-        logger.experiment["Negative Count"] = neg_count
-        logger.experiment["Accuracy"] = accuracy_pct
+        logger.experiment[f"{prefix}Count"] = count
+        logger.experiment[f"{prefix}Negative Count"] = neg_count
+        logger.experiment[f"{prefix}Accuracy"] = accuracy_pct
         print(f"Count: {count}, Negative Count: {neg_count}, Accuracy: {accuracy_pct}")
 
     finally:

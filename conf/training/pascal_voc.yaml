@@ -4,10 +4,10 @@ defaults:
 # Pascal VOC is multi-label; use BCEWithLogitsLoss and adjust threshold
 num_classes: 20
 multi_label: true
-threshold: 0.5
+threshold: 0.2
 
 criterion: bce_with_logits
 
 # batch_size: 16
-max_epochs: 15
+max_epochs: 25
 learning_rate: 8e-4

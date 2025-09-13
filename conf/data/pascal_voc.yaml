@@ -30,8 +30,8 @@ classes:
   tvmonitor: 20
 
 transforms:
-  resize_width: 512
-  resize_height: 512
+  resize_width: 299
+  resize_height: 299
 
   normalization:
     mean: [0.485, 0.456, 0.406]
