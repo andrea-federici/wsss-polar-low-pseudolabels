@@ -8,6 +8,6 @@ threshold: 0.5
 
 criterion: bce_with_logits
 
-batch_size: 32
-max_epochs: 20
-learning_rate: 5e-3
+# batch_size: 16
+max_epochs: 15
+learning_rate: 8e-4

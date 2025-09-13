@@ -345,7 +345,7 @@ def _generate_and_save_heatmaps(
                     logits = model(resized_img)
                     probs = torch.sigmoid(logits)
                     pos_prob = probs[0, target_class].item()
-                    pred = int(pos_prob >= threshold)
+                    pred = int(pos_prob >= 0.2)  # TODO: avoid hard-coding
 
                     # Calculate necessity drop
                     next_img = erase_region_using_heatmap(
@@ -379,8 +379,16 @@ def _generate_and_save_heatmaps(
                         heatmap = torch.zeros_like(heatmap)
 
                     # Save heatmap
+                    save_png = (
+                        True if img_idx == 0 else False
+                    )  # Only save for first image in batch
                     _save_heatmap(
-                        heatmap, save_dir, img_name, pred, target_class=target_class
+                        heatmap,
+                        save_dir,
+                        img_name,
+                        pred,
+                        target_class=target_class,
+                        save_png=save_png,
                     )
 
         # TODO: I could group the metrics in a subfolder
@@ -403,6 +411,7 @@ def _save_heatmap(
     pred: int,
     *,
     target_class: Optional[int] = None,
+    save_png: bool = False,
 ) -> None:
     """
     Save the heatmap to the specified directory in both .pt and .png formats.
@@ -438,10 +447,11 @@ def _save_heatmap(
     heatmap_filename_pt = os.path.join(save_dir, f"{base_name}.pt")
     torch.save(heatmap, heatmap_filename_pt)
 
-    # Save .png file, just for debugging purposes
-    heatmap_filename_png = os.path.join(save_dir, f"{base_name}_pred_{pred}.png")
-    heatmap_np = heatmap.detach().cpu().numpy()
-    plt.imsave(heatmap_filename_png, heatmap_np, cmap="jet")
+    if save_png:
+        # Save .png file, just for debugging purposes
+        heatmap_filename_png = os.path.join(save_dir, f"{base_name}_pred_{pred}.png")
+        heatmap_np = heatmap.detach().cpu().numpy()
+        plt.imsave(heatmap_filename_png, heatmap_np, cmap="jet")
 
 
 def _save_envelope_debug_images(
