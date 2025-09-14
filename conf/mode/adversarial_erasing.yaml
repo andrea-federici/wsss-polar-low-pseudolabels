@@ -20,4 +20,5 @@ train_config:
 
 masks:
   save_directory: out/masks
+  also_visualizable: true
   remove_background: true

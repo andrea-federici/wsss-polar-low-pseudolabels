@@ -13,4 +13,8 @@ mode:
       area_envelope:
         scale: 0.4
   masks:
+    generate_for_iterations: [4, 5]
+    also_visualizable: false
     remove_background: false
+
+skip_training: true  # set this to true to skip adversarial erasing and only generate the masks.

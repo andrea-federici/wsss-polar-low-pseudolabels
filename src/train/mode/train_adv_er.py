@@ -57,88 +57,92 @@ def run(cfg: DictConfig) -> None:
 
     max_iterations = cfg.mode.train_config.max_iterations
 
-    for iteration in range(0, max_iterations):
-        ts = get_train_setup(cfg, iteration=iteration)
+    if not cfg.get("skip_training", False):
+        for iteration in range(0, max_iterations):
+            ts = get_train_setup(cfg, iteration=iteration)
 
-        logger = ts.logger
-        lightning_model = ts.lightning_model
+            logger = ts.logger
+            lightning_model = ts.lightning_model
 
-        logger.experiment["iteration"] = iteration
-        logger.experiment["start_time"] = datetime.now().isoformat()
+            logger.experiment["iteration"] = iteration
+            logger.experiment["start_time"] = datetime.now().isoformat()
 
-        # Remember that Lightning automatically moves the model to "cuda" if available,
-        # and then moves the model back to "cpu" after training, even if the model was
-        # on the "cuda" device before calling the fit() function.
-        ts.trainer.fit(lightning_model, ts.train_loader, ts.val_loader)
+            # Remember that Lightning automatically moves the model to "cuda" if available,
+            # and then moves the model back to "cpu" after training, even if the model was
+            # on the "cuda" device before calling the fit() function.
+            ts.trainer.fit(lightning_model, ts.train_loader, ts.val_loader)
 
-        # Generate new heatmaps for next iteration
-        heatmap_load_transform = aug.to_compose(
-            aug.AugConfig(
-                resize_width=cfg.data.original_width,  # Remember to use original size
-                resize_height=cfg.data.original_height,  # Same as above
-                mean=cfg.data.transforms.normalization.mean,
-                std=cfg.data.transforms.normalization.std,
-            ),
-            "val",
-        )
-        class_range = (
-            range(cfg.training.num_classes) if dataset_type == "pascal_voc" else [1]
-        )
-        current_heatmaps_dir = os.path.join(base_heatmaps_dir, f"iteration_{iteration}")
-        os.makedirs(current_heatmaps_dir, exist_ok=True)
-        for split in splits:
-            split_data_dir = (
-                data_dir
-                if dataset_type == "pascal_voc"
-                else os.path.join(data_dir, split)
+            # Generate new heatmaps for next iteration
+            heatmap_load_transform = aug.to_compose(
+                aug.AugConfig(
+                    resize_width=cfg.data.original_width,  # Remember to use original size
+                    resize_height=cfg.data.original_height,  # Same as above
+                    mean=cfg.data.transforms.normalization.mean,
+                    std=cfg.data.transforms.normalization.std,
+                ),
+                "val",
             )
-            for cls in class_range:
-                _generate_and_save_heatmaps(
-                    lightning_model.model,
-                    data_dir=split_data_dir,
-                    transform=heatmap_load_transform,
+            class_range = (
+                range(cfg.training.num_classes) if dataset_type == "pascal_voc" else [1]
+            )
+            current_heatmaps_dir = os.path.join(
+                base_heatmaps_dir, f"iteration_{iteration}"
+            )
+            os.makedirs(current_heatmaps_dir, exist_ok=True)
+            for split in splits:
+                split_data_dir = (
+                    data_dir
+                    if dataset_type == "pascal_voc"
+                    else os.path.join(data_dir, split)
+                )
+                for cls in class_range:
+                    _generate_and_save_heatmaps(
+                        lightning_model.model,
+                        data_dir=split_data_dir,
+                        transform=heatmap_load_transform,
+                        base_heatmaps_dir=base_heatmaps_dir,
+                        iteration=iteration,
+                        envelope_start=envelope_start,
+                        envelope_scale=envelope_scale,
+                        save_dir=current_heatmaps_dir,
+                        target_size=training_size,
+                        super_sizes=heatmaps_config.get("super_sizes", []),
+                        attribution=heatmaps_config.attribution,
+                        threshold=threshold,
+                        fill_color=heatmaps_config.fill_color,
+                        logger=logger,
+                        device=cfg.hardware.device,
+                        target_class=cls,
+                        dataset_type=dataset_type,
+                        split=split,
+                    )
+
+            if iteration > 0:
+                # TODO: this does not work for VOC atm, since it does not contain a 'pos' directory.
+                sample_paths = sorted(
+                    glob.glob(os.path.join(train_dir, "pos", "*.png"))
+                )[:10]
+                debug_dir = os.path.join(
+                    "out", "debug", "envelopes", f"iteration_{iteration}"
+                )
+                _save_envelope_debug_images(
                     base_heatmaps_dir=base_heatmaps_dir,
+                    img_paths=sample_paths,
                     iteration=iteration,
+                    threshold=threshold,
+                    target_size=training_size,
                     envelope_start=envelope_start,
                     envelope_scale=envelope_scale,
-                    save_dir=current_heatmaps_dir,
-                    target_size=training_size,
-                    super_sizes=heatmaps_config.get("super_sizes", []),
-                    attribution=heatmaps_config.attribution,
-                    threshold=threshold,
-                    fill_color=heatmaps_config.fill_color,
-                    logger=logger,
-                    device=cfg.hardware.device,
-                    target_class=cls,
-                    dataset_type=dataset_type,
-                    split=split,
+                    save_dir=debug_dir,
                 )
 
-        if iteration > 0:
-            # TODO: this does not work for VOC atm, since it does not contain a 'pos' directory.
-            sample_paths = sorted(glob.glob(os.path.join(train_dir, "pos", "*.png")))[
-                :10
-            ]
-            debug_dir = os.path.join(
-                "out", "debug", "envelopes", f"iteration_{iteration}"
-            )
-            _save_envelope_debug_images(
-                base_heatmaps_dir=base_heatmaps_dir,
-                img_paths=sample_paths,
-                iteration=iteration,
-                threshold=threshold,
-                target_size=training_size,
-                envelope_start=envelope_start,
-                envelope_scale=envelope_scale,
-                save_dir=debug_dir,
-            )
+            logger.experiment["end_time"] = datetime.now().isoformat()
 
-        logger.experiment["end_time"] = datetime.now().isoformat()
-
-        logger.experiment.stop()
+            logger.experiment.stop()
 
     # Generate masks
     mask_dir = cfg.mode.masks.save_directory
+    also_visualizable = cfg.mode.masks.also_visualizable
     remove_background = cfg.mode.masks.remove_background
 
     area_cfg = cfg.mode.train_config.heatmaps.get("area_envelope", {})
@@ -150,21 +154,26 @@ def run(cfg: DictConfig) -> None:
         os.path.join(data_dir, "train", "neg") if dataset_type != "pascal_voc" else None
     )
 
-    for iteration in range(0, max_iterations):
+    generate_for_iterations = cfg.mode.masks.get(
+        "generate_for_iterations", range(0, max_iterations)
+    )
+
+    for iteration in generate_for_iterations:
         ## BINARY ##
         # Visualizable (just for debugging)
-        generate_masks(
-            base_heatmaps_dir=base_heatmaps_dir,
-            mask_dir=f"{mask_dir}/binary/iteration_{iteration}/vis",
-            mask_size=training_size,
-            threshold=threshold,
-            type="binary" if dataset_type != "pascal_voc" else "voc",
-            iteration=iteration,
-            remove_background=remove_background,
-            vis=True,
-            envelope_start=envelope_start,
-            envelope_scale=envelope_scale,
-        )
+        if also_visualizable:
+            generate_masks(
+                base_heatmaps_dir=base_heatmaps_dir,
+                mask_dir=f"{mask_dir}/binary/iteration_{iteration}/vis",
+                mask_size=training_size,
+                threshold=threshold,
+                type="binary" if dataset_type != "pascal_voc" else "voc",
+                iteration=iteration,
+                remove_background=remove_background,
+                vis=True,
+                envelope_start=envelope_start,
+                envelope_scale=envelope_scale,
+            )
 
         # Non-visualizable (for training)
         generate_masks(
@@ -183,18 +192,19 @@ def run(cfg: DictConfig) -> None:
         if dataset_type != "pascal_voc":
             ## MULTI-CLASS ##
             # Visualizable (just for debugging)
-            generate_masks(
-                base_heatmaps_dir=base_heatmaps_dir,
-                mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/vis",
-                mask_size=training_size,
-                threshold=threshold,
-                type="multiclass",
-                iteration=iteration,
-                remove_background=remove_background,
-                vis=True,
-                envelope_start=envelope_start,
-                envelope_scale=envelope_scale,
-            )
+            if also_visualizable:
+                generate_masks(
+                    base_heatmaps_dir=base_heatmaps_dir,
+                    mask_dir=f"{mask_dir}/multiclass/iteration_{iteration}/vis",
+                    mask_size=training_size,
+                    threshold=threshold,
+                    type="multiclass",
+                    iteration=iteration,
+                    remove_background=remove_background,
+                    vis=True,
+                    envelope_start=envelope_start,
+                    envelope_scale=envelope_scale,
+                )
 
             # Non-visualizable (for training)
             generate_masks(
