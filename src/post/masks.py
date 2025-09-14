@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from src.data.adversarial_erasing_io import (
-    generate_exclusive_multiclass_mask_from_heatmaps,
+    generate_exclusive_multiclass_mask_from_heatmaps_fast,
     generate_multiclass_mask_from_heatmaps,
 )
 from src.utils.constants import PYTORCH_EXTENSION
@@ -160,10 +160,7 @@ def generate_masks(
 
     if type == "voc":
         heatmap_filenames = sorted(
-            {
-                os.path.splitext(f)[0].split("_cls")[0]
-                for f in heatmap_filenames
-            }
+            {os.path.splitext(f)[0].split("_cls")[0] for f in heatmap_filenames}
         )
 
     print(f"Loaded {len(heatmap_filenames)} heatmaps.")
@@ -285,7 +282,7 @@ def generate_masks(
                 mask = (mask / (iteration + 1)) * 255
 
         elif type == "voc":
-            multi_label_mask = generate_exclusive_multiclass_mask_from_heatmaps(
+            multi_label_mask = generate_exclusive_multiclass_mask_from_heatmaps_fast(
                 base_heatmaps_dir,
                 img_name,
                 iteration=iteration,

@@ -539,7 +539,10 @@ def generate_exclusive_multiclass_mask_from_heatmaps(
     reference_heatmap = pick_random_tensor(base_dir, iteration=0)
     final_mask = torch.zeros_like(reference_heatmap, dtype=torch.uint8)
     occupied = torch.zeros_like(reference_heatmap, dtype=torch.bool)
-    prev_masks = [torch.zeros_like(reference_heatmap, dtype=torch.bool) for _ in range(num_classes)]
+    prev_masks = [
+        torch.zeros_like(reference_heatmap, dtype=torch.bool)
+        for _ in range(num_classes)
+    ]
 
     for it in range(iteration + 1):
         for cls in range(num_classes):
@@ -568,6 +571,44 @@ def generate_exclusive_multiclass_mask_from_heatmaps(
             final_mask[new_pixels] = cls + 1
             occupied |= new_pixels
 
+    return final_mask
+
+
+def generate_exclusive_multiclass_mask_from_heatmaps_fast(
+    base_dir: str,
+    img_name: str,
+    iteration: int,
+    threshold: float,
+    *,
+    num_classes: int,
+    envelope_start: int = 2,
+    envelope_scale: float = 0.1,
+):
+    reference = pick_random_tensor(base_dir, 0)
+    final_mask = torch.zeros_like(reference, dtype=torch.uint8)
+    occupied = torch.zeros_like(reference, dtype=torch.bool)
+
+    accum = [
+        torch.zeros_like(reference, dtype=torch.float32) for _ in range(num_classes)
+    ]
+    prev = [torch.zeros_like(reference, dtype=torch.bool) for _ in range(num_classes)]
+
+    for it in range(iteration + 1):
+        for cls in range(num_classes):
+            try:
+                heatmap = load_tensor(base_dir, it, f"{img_name}_cls{cls}")
+            except FileNotFoundError:
+                continue
+            accum[cls] = torch.clamp(accum[cls] + heatmap, 0, 1)
+            current = accum[cls] > threshold
+            if it >= envelope_start:
+                env = _area_targeted_envelope(prev[cls], envelope_scale)
+                current &= env
+                accum[cls] *= env.float()
+            new_pixels = current & ~prev[cls] & ~occupied
+            final_mask[new_pixels] = cls + 1
+            occupied |= new_pixels
+            prev[cls] = current
     return final_mask
 
 
