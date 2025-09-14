@@ -115,6 +115,7 @@ def run(cfg: DictConfig) -> None:
                 )
 
         if iteration > 0:
+            # TODO: this does not work for VOC atm, since it does not contain a 'pos' directory.
             sample_paths = sorted(glob.glob(os.path.join(train_dir, "pos", "*.png")))[
                 :10
             ]

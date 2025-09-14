@@ -27,7 +27,8 @@ def load_tensor(
         img_name (str): Image filename (with or without extension) or full path; only the
                         base name (without extension) is used to locate the tensor.
         target_class (int, optional): If provided, the tensor filename is expected to
-            be suffixed with ``_cls{target_class}``.
+            be suffixed with ``_cls{target_class}`` This should only be used in a multi-label
+            setting. Pass None in a single-label setting.
 
     Returns:
         torch.Tensor: The loaded tensor. For binary masks, convert using .bool().
@@ -206,9 +207,9 @@ def load_accumulated_heatmap(
                 all iterations.
             - "pl_specific": Load a heatmap that matches the first 6 characters of the
                 image name.
-        target_class (int, optional): Class index for multi-class datasets. When
+        target_class (int, optional): Class index for multi-label datasets. When
             provided, heatmaps are loaded using filenames suffixed with
-            ``_cls{target_class}``.
+            ``_cls{target_class}``. Pass None for single-label datasets.
 
     Returns:
         torch.Tensor: The accumulated and normalized heatmap tensor.
@@ -554,7 +555,7 @@ def generate_exclusive_multiclass_mask_from_heatmaps(
                     target_class=cls,
                 )
             except FileNotFoundError:
-                # Skip classes without heatmaps at this iteration
+                # Skip classes not present in this image.
                 continue
 
             class_mask = accum > threshold

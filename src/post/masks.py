@@ -1,6 +1,6 @@
 import os
 from collections import deque
-from typing import Tuple, Union
+from typing import Tuple
 
 import cv2
 import numpy as np
@@ -157,6 +157,15 @@ def generate_masks(
     heatmap_filenames = [
         f for f in os.listdir(iteration_dir) if f.endswith(PYTORCH_EXTENSION)
     ]
+
+    if type == "voc":
+        heatmap_filenames = sorted(
+            {
+                os.path.splitext(f)[0].split("_cls")[0]
+                for f in heatmap_filenames
+            }
+        )
+
     print(f"Loaded {len(heatmap_filenames)} heatmaps.")
 
     for filename in tqdm(
@@ -164,7 +173,10 @@ def generate_masks(
         desc=f"Processing {type} heatmaps, iteration {iteration}, vis={vis}",
     ):
         # Assume the image name is encoded in the filename (without extension)
-        img_name = os.path.splitext(os.path.basename(filename))[0]
+        if type == "voc":
+            img_name = filename
+        else:
+            img_name = os.path.splitext(os.path.basename(filename))[0]
         mask_path = os.path.join(mask_dir, f"{img_name}.png")
 
         if type == "binary":
