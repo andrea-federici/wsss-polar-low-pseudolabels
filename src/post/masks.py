@@ -8,7 +8,8 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from src.data.adversarial_erasing_io import generate_multiclass_mask_from_heatmaps
+from src.data.adversarial_erasing_io import \
+    generate_multiclass_mask_from_heatmaps
 from src.utils.constants import PYTORCH_EXTENSION
 
 
@@ -277,8 +278,9 @@ def generate_negative_masks(
     """
     Generates all-zero masks for negative images.
 
-    For each .png image in `negative_images_dir`, creates an empty mask of the specified
-    `mask_size` filled with zeros and saves it to `mask_dir` with the same base name.
+    For each .png/.jpg/.jpeg image in `negative_images_dir`, creates an empty mask of the specified
+    `mask_size` filled with zeros and saves it to `mask_dir` with the same base name, in the .png
+    format.
 
     Args:
         negative_images_dir (str): Directory containing negative images.
@@ -288,14 +290,14 @@ def generate_negative_masks(
     # Ensure output directory exists
     os.makedirs(mask_dir, exist_ok=True)
 
-    # List all .png files in the negative_images_dir
+    # List all .png/.jpg/.jpeg files in the negative_images_dir
     image_filenames = [
         f
         for f in os.listdir(negative_images_dir)
-        if os.path.splitext(f)[1].lower() == ".png"
+        if os.path.splitext(f)[1].lower() in [".png", ".jpg", ".jpeg"]
     ]
 
-    print(f"Generating zero masks for {len(image_filenames)} negative .png images...")
+    print(f"Generating all-zero masks for {len(image_filenames)} negative images...")
 
     for filename in image_filenames:
         img_name, _ = os.path.splitext(filename)
@@ -305,7 +307,7 @@ def generate_negative_masks(
         # mask_size is (width, height), numpy expects (height, width)
         zero_mask = np.zeros((mask_size[1], mask_size[0]), dtype=np.uint8)
 
-        # Save the zero mask as a PNG
+        # Save the all-zero mask
         cv2.imwrite(mask_path, zero_mask)
 
     print("Negative masks generation complete.")

@@ -1,0 +1,22 @@
+defaults:
+  - polar_lows
+
+directory: data/voc_binary
+original_width: 500
+original_height: 375
+
+transforms:
+  resize_width: 299
+  resize_height: 299
+
+  normalization:
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+
+  augmentation:
+    translate_frac: 0.15
+    degrees: 15
+    scale: [0.8, 1.2]
+    vertical_flip: false
+    random_erasing:
+      p: 0.25

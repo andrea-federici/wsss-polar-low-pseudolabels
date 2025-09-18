@@ -13,14 +13,12 @@ from omegaconf import DictConfig
 from torchvision import transforms
 from tqdm import tqdm
 
-import src.attributions.gradcam as gradcam
 import src.attributions.cam as cam
+import src.attributions.gradcam as gradcam
 import src.data.augmentation as aug
-from src.data.adversarial_erasing_io import (
-    _area_targeted_envelope,
-    load_accumulated_heatmap,
-    load_tensor,
-)
+from src.data.adversarial_erasing_io import (_area_targeted_envelope,
+                                             load_accumulated_heatmap,
+                                             load_tensor)
 from src.data.data_loaders import create_class_dataloader
 from src.data.image_processing import erase_region_using_heatmap
 from src.post.masks import generate_masks, generate_negative_masks
@@ -47,72 +45,72 @@ def run(cfg: DictConfig) -> None:
 
     max_iterations = cfg.mode.train_config.max_iterations
 
-    for iteration in range(0, max_iterations):
-        ts = get_train_setup(cfg, iteration=iteration)
+    if not cfg.get("skip_training", False):
+        for iteration in range(0, max_iterations):
+            ts = get_train_setup(cfg, iteration=iteration)
 
-        logger = ts.logger
-        lightning_model = ts.lightning_model
+            logger = ts.logger
+            lightning_model = ts.lightning_model
 
-        logger.experiment["iteration"] = iteration
-        logger.experiment["start_time"] = datetime.now().isoformat()
+            logger.experiment["iteration"] = iteration
+            logger.experiment["start_time"] = datetime.now().isoformat()
 
-        current_heatmaps_dir = os.path.join(base_heatmaps_dir, f"iteration_{iteration}")
-        os.makedirs(current_heatmaps_dir, exist_ok=True)
+            current_heatmaps_dir = os.path.join(base_heatmaps_dir, f"iteration_{iteration}")
+            os.makedirs(current_heatmaps_dir, exist_ok=True)
 
-        # Remember that Lightning automatically moves the model to "cuda" if available,
-        # and then moves the model back to "cpu" after training, even if the model was
-        # on the "cuda" device before calling the fit() function.
-        ts.trainer.fit(lightning_model, ts.train_loader, ts.val_loader)
+            # Remember that Lightning automatically moves the model to "cuda" if available,
+            # and then moves the model back to "cpu" after training, even if the model was
+            # on the "cuda" device before calling the fit() function.
+            ts.trainer.fit(lightning_model, ts.train_loader, ts.val_loader)
 
-        # Generate new heatmaps for next iteration
-        heatmap_load_transform = aug.to_compose(
-            aug.AugConfig(
-                resize_width=cfg.data.original_width,  # Remember to use original size
-                resize_height=cfg.data.original_height,  # Same as above
-                mean=cfg.data.transforms.normalization.mean,
-                std=cfg.data.transforms.normalization.std,
-            ),
-            "val",
-        )
-        _generate_and_save_heatmaps(
-            lightning_model.model,
-            data_dir=train_dir,
-            transform=heatmap_load_transform,
-            base_heatmaps_dir=base_heatmaps_dir,
-            iteration=iteration,
-            envelope_start=envelope_start,
-            envelope_scale=envelope_scale,
-            save_dir=current_heatmaps_dir,
-            target_size=training_size,
-            super_sizes=heatmaps_config.get("super_sizes", []),
-            attribution=heatmaps_config.attribution,
-            threshold=threshold,
-            fill_color=heatmaps_config.fill_color,
-            logger=logger,
-            device=cfg.hardware.device,
-        )
-
-        if iteration > 0:
-            sample_paths = sorted(glob.glob(os.path.join(train_dir, "pos", "*.png")))[
-                :10
-            ]
-            debug_dir = os.path.join(
-                "out", "debug", "envelopes", f"iteration_{iteration}"
+            # Generate new heatmaps for next iteration
+            heatmap_load_transform = aug.to_compose(
+                aug.AugConfig(
+                    resize_width=cfg.data.original_width,  # Remember to use original size
+                    resize_height=cfg.data.original_height,  # Same as above
+                    mean=cfg.data.transforms.normalization.mean,
+                    std=cfg.data.transforms.normalization.std,
+                ),
+                "val",
             )
-            _save_envelope_debug_images(
+            _generate_and_save_heatmaps(
+                lightning_model.model,
+                data_dir=train_dir,
+                transform=heatmap_load_transform,
                 base_heatmaps_dir=base_heatmaps_dir,
-                img_paths=sample_paths,
                 iteration=iteration,
-                threshold=threshold,
-                target_size=training_size,
                 envelope_start=envelope_start,
                 envelope_scale=envelope_scale,
-                save_dir=debug_dir,
+                save_dir=current_heatmaps_dir,
+                target_size=training_size,
+                super_sizes=heatmaps_config.get("super_sizes", []),
+                attribution=heatmaps_config.attribution,
+                threshold=threshold,
+                fill_color=heatmaps_config.fill_color,
+                logger=logger,
+                device=cfg.hardware.device,
             )
 
-        logger.experiment["end_time"] = datetime.now().isoformat()
+            if iteration > 0:
+                sample_paths = sorted(glob.glob(os.path.join(train_dir, "pos", "*.png")))[
+                    :10
+                ]
+                debug_dir = os.path.join(
+                    "out", "debug", "envelopes", f"iteration_{iteration}"
+                )
+                _save_envelope_debug_images(
+                    base_heatmaps_dir=base_heatmaps_dir,
+                    img_paths=sample_paths,
+                    iteration=iteration,
+                    threshold=threshold,
+                    target_size=training_size,
+                    envelope_start=envelope_start,
+                    envelope_scale=envelope_scale,
+                    save_dir=debug_dir,
+                )
 
-        logger.experiment.stop()
+            logger.experiment["end_time"] = datetime.now().isoformat()
+            logger.experiment.stop()
 
     # Generate masks
     mask_dir = cfg.mode.masks.save_directory

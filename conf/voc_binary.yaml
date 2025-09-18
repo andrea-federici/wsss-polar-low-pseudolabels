@@ -1,0 +1,19 @@
+defaults:
+  - hardware: cuda
+  - logger: neptune
+  - data: voc_binary
+  - mode: adversarial_erasing
+  - training: base
+
+mode:
+  train_config:
+    max_iterations: 6
+    heatmaps:
+      threshold: 0.8
+      negative_load_strategy: random
+      area_envelope:
+        scale: 0.2
+  masks:
+    remove_background: false
+  
+skip_training: false
