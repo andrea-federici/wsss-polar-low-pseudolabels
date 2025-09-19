@@ -1,10 +1,10 @@
 from omegaconf import DictConfig
 
-from src.train.setup import get_train_setup
+from src.train.setup import setup_training
 
 
 def run(cfg: DictConfig) -> None:
-    ts = get_train_setup(cfg)
+    ts = setup_training(cfg)
 
     logger = ts.logger
     logger.experiment["source_files/train_config"].upload("train_config.py")

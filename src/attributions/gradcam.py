@@ -6,7 +6,8 @@ import torch
 import torch.nn.functional as F
 from captum.attr import LayerGradCam
 
-from src.data.image_processing import convert_to_np_array, normalize_image_to_range
+from src.data.image_processing import (convert_to_np_array,
+                                       normalize_image_to_range)
 
 
 def generate_heatmap(
@@ -212,7 +213,8 @@ def overlay_heatmap(
             (torch.Tensor) or (H, W, C) (np.ndarray). Must have 3 channels.
             Values can be in any range, but will be normalized internally.
         heatmap (torch.Tensor): A 2D tensor of shape (H, W) with values in [0, 1],
-            representing the normalized Grad-CAM heatmap.
+            representing the normalized Grad-CAM heatmap. Heatmap will be resized
+            to match the input image size if necessary.
         alpha (float, optional): The blending factor for the hard overlay (default: 0.5).
             Higher values make the heatmap more prominent.
 

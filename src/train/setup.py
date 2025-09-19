@@ -11,13 +11,9 @@ from src.data.data_loaders import create_data_loaders
 from src.models.configs import AdversarialErasingBaseConfig
 from src.models.erase_strategies import HeatmapEraseStrategy, MaskEraseStrategy
 from src.train.logger import create_neptune_logger
-from src.utils.getters import (
-    criterion_getter,
-    lightning_model_getter,
-    lr_scheduler_getter,
-    optimizer_getter,
-    torch_model_getter,
-)
+from src.utils.getters import (criterion_getter, lightning_model_getter,
+                               lr_scheduler_getter, optimizer_getter,
+                               torch_model_getter)
 
 
 @dataclass
@@ -29,7 +25,7 @@ class TrainSetup:
     logger: NeptuneLogger
 
 
-def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
+def setup_training(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
     device = cfg.hardware.device
 
     ## LOGGER ##
@@ -149,7 +145,7 @@ def get_train_setup(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
             mode=train_cfg.checkpoint.mode,
             save_top_k=1,
             dirpath=train_cfg.checkpoint.directory,
-            filename=train_cfg.checkpoint.filename,
+            filename=train_cfg.checkpoint.name_prefix + str(iteration),
         )
     )
 

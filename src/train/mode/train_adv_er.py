@@ -1,19 +1,19 @@
 import glob
 import os
 from datetime import datetime
-from typing import List, Tuple, Union
+from itertools import chain
+from typing import List, Tuple, cast
 
 import cv2
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import torch.nn.functional as F
+from lightning.pytorch.callbacks import ModelCheckpoint
 from omegaconf import DictConfig
 from torchvision import transforms
 from tqdm import tqdm
 
-import src.attributions.cam as cam
 import src.attributions.gradcam as gradcam
 import src.data.augmentation as aug
 from src.data.adversarial_erasing_io import (_area_targeted_envelope,
@@ -22,7 +22,8 @@ from src.data.adversarial_erasing_io import (_area_targeted_envelope,
 from src.data.data_loaders import create_class_dataloader
 from src.data.image_processing import erase_region_using_heatmap
 from src.post.masks import generate_masks, generate_negative_masks
-from src.train.setup import get_train_setup
+from src.train.setup import setup_training
+from src.utils.misc import resize_heatmap
 from src.utils.neptune_utils import NeptuneLogger
 
 
@@ -38,6 +39,7 @@ def run(cfg: DictConfig) -> None:
         cfg.data.transforms.resize_width,
     )  # (H, W)
     threshold = heatmaps_config.threshold
+    fill_color = heatmaps_config.fill_color
 
     envelope_cfg = heatmaps_config.get("area_envelope", {})
     envelope_start = envelope_cfg.get("start_iteration", 2)
@@ -47,10 +49,10 @@ def run(cfg: DictConfig) -> None:
 
     if not cfg.get("skip_training", False):
         for iteration in range(0, max_iterations):
-            ts = get_train_setup(cfg, iteration=iteration)
+            train_setup = setup_training(cfg, iteration=iteration)
 
-            logger = ts.logger
-            lightning_model = ts.lightning_model
+            logger = train_setup.logger
+            lightning_model = train_setup.lightning_model
 
             logger.experiment["iteration"] = iteration
             logger.experiment["start_time"] = datetime.now().isoformat()
@@ -61,7 +63,16 @@ def run(cfg: DictConfig) -> None:
             # Remember that Lightning automatically moves the model to "cuda" if available,
             # and then moves the model back to "cpu" after training, even if the model was
             # on the "cuda" device before calling the fit() function.
-            ts.trainer.fit(lightning_model, ts.train_loader, ts.val_loader)
+            trainer = train_setup.trainer
+            trainer.fit(lightning_model, train_setup.train_loader, train_setup.val_loader)
+
+            # Load best model checkpoint
+            assert trainer.checkpoint_callback is not None, "Checkpoint callback not configured."
+            ckpt_cb = cast(ModelCheckpoint, trainer.checkpoint_callback)
+            best_ckpt_path = ckpt_cb.best_model_path
+            assert best_ckpt_path and os.path.isfile(best_ckpt_path), f"Missing: {best_ckpt_path}"
+            best_lit = type(lightning_model).load_from_checkpoint(best_ckpt_path)
+            best_lit.eval()
 
             # Generate new heatmaps for next iteration
             heatmap_load_transform = aug.to_compose(
@@ -74,7 +85,7 @@ def run(cfg: DictConfig) -> None:
                 "val",
             )
             _generate_and_save_heatmaps(
-                lightning_model.model,
+                best_lit.model,
                 data_dir=train_dir,
                 transform=heatmap_load_transform,
                 base_heatmaps_dir=base_heatmaps_dir,
@@ -83,18 +94,18 @@ def run(cfg: DictConfig) -> None:
                 envelope_scale=envelope_scale,
                 save_dir=current_heatmaps_dir,
                 target_size=training_size,
-                super_sizes=heatmaps_config.get("super_sizes", []),
-                attribution=heatmaps_config.attribution,
                 threshold=threshold,
-                fill_color=heatmaps_config.fill_color,
+                fill_color=fill_color,
                 logger=logger,
                 device=cfg.hardware.device,
             )
 
             if iteration > 0:
-                sample_paths = sorted(glob.glob(os.path.join(train_dir, "pos", "*.png")))[
-                    :10
-                ]
+                patterns = ("*.png", "*.jpg", "*.jpeg")
+                sample_paths = sorted(chain.from_iterable(
+                    glob.glob(os.path.join(train_dir, "pos", pat)) for pat in patterns
+                ))[:10]
+
                 debug_dir = os.path.join(
                     "out", "debug", "envelopes", f"iteration_{iteration}"
                 )
@@ -103,6 +114,7 @@ def run(cfg: DictConfig) -> None:
                     img_paths=sample_paths,
                     iteration=iteration,
                     threshold=threshold,
+                    fill_color=fill_color,
                     target_size=training_size,
                     envelope_start=envelope_start,
                     envelope_scale=envelope_scale,
@@ -214,14 +226,10 @@ def _generate_and_save_heatmaps(
     envelope_scale: float,
     save_dir: str,
     target_size: Tuple[int, int],  # (H, W)
-    super_sizes: List[int],
     threshold: float,
-    fill_color: Union[int, float],
+    fill_color: int,
     logger: NeptuneLogger,
-    attribution: str = "gradcam",
     target_class: int = 1,
-    batch_size: int = 32,
-    num_workers: int = 4,
     device: str = "cpu",
 ):
     was_training = model.training
@@ -235,8 +243,8 @@ def _generate_and_save_heatmaps(
             data_dir=data_dir,
             transform=transform,
             target_class=target_class,
-            batch_size=batch_size,
-            num_workers=num_workers,
+            batch_size=32,
+            num_workers=4,
             dataset_type="adversarial_erasing",
             shuffle=False,
         )
@@ -275,24 +283,13 @@ def _generate_and_save_heatmaps(
                             img, accumulated_heatmap, threshold, fill_color
                         )
 
-                    if attribution.lower() == "gradcam":
-                        heatmap, intermediates = gradcam.generate_super_heatmap(
+                    with torch.enable_grad():
+                        heatmap = gradcam.generate_heatmap(
                             model,
                             img,
-                            target_size=target_size,
-                            sizes=super_sizes,
                             target_class=target_class,
-                            return_intermediates=True,
                         )
-                    elif attribution.lower() == "cam":
-                        heatmap = cam.generate_heatmap(
-                            model, img, target_class=target_class
-                        )
-                        intermediates = {}
-                    else:
-                        raise ValueError(
-                            f"Unsupported attribution method: {attribution}"
-                        )
+                    heatmap = resize_heatmap(heatmap, target_size)
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
 
@@ -307,7 +304,7 @@ def _generate_and_save_heatmaps(
                     logits = model(resized_img)
                     probs = torch.softmax(logits, dim=1)
                     pos_prob = probs[0, target_class].item()
-                    pred = torch.argmax(logits).item()
+                    pred = int(torch.argmax(logits).item())
 
                     # Calculate necessity drop
                     next_img = erase_region_using_heatmap(
@@ -324,12 +321,6 @@ def _generate_and_save_heatmaps(
                         logger.log_tensor_img(
                             img_overlay, name=f"heatmap_{img_name}_{suffix}"
                         )
-                        for s in sorted(intermediates.keys()):
-                            hm = intermediates[s].unsqueeze(0).unsqueeze(0).cpu()
-                            logger.log_tensor_img(
-                                hm,
-                                name=f"intermediates/heatmap_{img_name}_{s}_{suffix}",
-                            )
 
                     # Generate transparent heatmap if prediction is negative
                     if pred == 0:
@@ -397,38 +388,23 @@ def _save_envelope_debug_images(
     img_paths: List[str],
     iteration: int,
     threshold: float,
+    fill_color: int,
     target_size: Tuple[int, int],
     envelope_start: int,
     envelope_scale: float,
     save_dir: str,
 ) -> None:
-    """Save composite plots illustrating mask accumulation and envelope constraints.
-
-    Each saved figure contains one subplot per iteration up to ``iteration-1``.
-    For subplot ``t``, the image is overlaid with the cumulative mask through
-    iteration ``t`` (inclusive), the raw heatmap from iteration ``t+1``, and the
-    border of the area-targeted envelope computed from the current mask.
-
-    Args:
-        base_heatmaps_dir: Directory containing per-iteration heatmaps.
-        img_paths: List of image file paths to visualize.
-        iteration: Current iteration (the latest heatmaps correspond to this index).
-        threshold: Threshold used to binarize accumulated heatmaps.
-        target_size: Size ``(H, W)`` to which images are resized for visualization.
-        envelope_start: Iteration at which the envelope constraint begins.
-        envelope_scale: Scale factor controlling envelope dilation.
-        save_dir: Directory where the debug figures will be saved.
-    """
-
     os.makedirs(save_dir, exist_ok=True)
 
     for img_path in img_paths:
         img_name = os.path.splitext(os.path.basename(img_path))[0]
-        img = cv2.imread(img_path, cv2.IMREAD_COLOR)
-        if img is None:
+        img_bgr = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        if img_bgr is None:
             continue
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (target_size[1], target_size[0]))
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        img_rgb = cv2.resize(img_rgb, (target_size[1], target_size[0]))
+        img_t = torch.from_numpy(img_rgb).permute(2, 0, 1).float() / 255.0  # (C,H,W)
+        img_t = img_t.unsqueeze(0)  # (1,C,H,W),
 
         fig, axes = plt.subplots(1, iteration, figsize=(5 * iteration, 5))
         if iteration == 1:
@@ -438,20 +414,27 @@ def _save_envelope_debug_images(
             cumulative = load_accumulated_heatmap(
                 base_heatmaps_dir,
                 img_name,
-                1,
-                t,
+                label=1,
+                iteration=t,
                 threshold=threshold,
                 envelope_start=envelope_start,
                 envelope_scale=envelope_scale,
             )
+
+            img_t = erase_region_using_heatmap(
+                img_t, cumulative, threshold, fill_color
+            )
+
             mask = cumulative > threshold
 
             next_heatmap = load_tensor(base_heatmaps_dir, t + 1, img_name)
+            overlay_t = gradcam.overlay_heatmap(img_t, next_heatmap)
+            if overlay_t.dim() == 4:
+                overlay_t = overlay_t.squeeze(0)
+            overlay_np = overlay_t.cpu().permute(1, 2, 0).clamp(0.0, 1.0).numpy()
 
             ax = axes[t]
-            ax.imshow(img)
-            ax.imshow(mask.cpu(), cmap="Reds", alpha=0.4)
-            ax.imshow(next_heatmap.cpu(), cmap="jet", alpha=0.4)
+            ax.imshow(overlay_np)
             if t >= envelope_start:
                 envelope = _area_targeted_envelope(mask, envelope_scale)
                 ax.contour(envelope.cpu(), levels=[0.5], colors="yellow", linewidths=1)
