@@ -6,11 +6,17 @@ from typing import List, Tuple, cast
 
 import cv2
 import matplotlib.pyplot as plt
-import numpy as np
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.callbacks import ModelCheckpoint
 from omegaconf import DictConfig
+from pytorch_grad_cam import GradCAM
+from pytorch_grad_cam.metrics.road import (
+    ROADMostRelevantFirstAverage,
+    ROADLeastRelevantFirstAverage,
+    ROADCombined
+)
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputSoftmaxTarget
 from torchvision import transforms
 from tqdm import tqdm
 
@@ -253,6 +259,13 @@ def _generate_and_save_heatmaps(
         count = 0
         neg_count = 0
 
+        targets = [ClassifierOutputSoftmaxTarget(1)]
+        cam = GradCAM(model=model, target_layers=[model.get_last_conv_layer()])
+        percentiles = [75, 85]
+        # mrf = ROADMostRelevantFirstAverage(percentiles)
+        # lrf = ROADLeastRelevantFirstAverage(percentiles)
+        comb = ROADCombined(percentiles)
+
         with torch.no_grad():
             # Loop through batches
             for batch_idx, (images, labels, img_paths) in enumerate(
@@ -284,12 +297,12 @@ def _generate_and_save_heatmaps(
                         )
 
                     with torch.enable_grad():
-                        heatmap = gradcam.generate_heatmap(
-                            model,
-                            img,
-                            target_class=target_class,
-                        )
-                    heatmap = resize_heatmap(heatmap, target_size)
+                        grayscale_cam = cam(img, targets=targets)[0, :]
+                        # mrf_score = mrf(img, grayscale_cam[None], targets, model).item()
+                        # lrf_score = lrf(img, grayscale_cam[None], targets, model).item()
+                        comb_score = comb(img, grayscale_cam[None], targets, model).item()
+                    
+                    heatmap = torch.from_numpy(grayscale_cam)
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
 
@@ -306,15 +319,7 @@ def _generate_and_save_heatmaps(
                     pos_prob = probs[0, target_class].item()
                     pred = int(torch.argmax(logits).item())
 
-                    # Calculate necessity drop
-                    next_img = erase_region_using_heatmap(
-                        resized_img, heatmap, threshold=threshold, fill_color=fill_color
-                    )
-                    next_logits = model(next_img)[0]
-                    next_pos_logit = next_logits[target_class].item()
-                    drop = logits[0][target_class].item() - next_pos_logit
-
-                    suffix = f"{pred}_{pos_prob:.3f}_{drop:.3f}"
+                    suffix = f"{pred}_{comb_score*100:.2f}"
 
                     # Log heatmap and image overlay to Neptune, just for batch 0
                     if batch_idx == 0:
