@@ -1,6 +1,6 @@
 import os
 import random
-from typing import Union
+from typing import Optional, Union
 
 import torch
 import torch.nn.functional as F
@@ -8,7 +8,12 @@ import torch.nn.functional as F
 from src.utils.constants import ITERATION_FOLDER_PREFIX, PYTORCH_EXTENSION
 
 
-def load_tensor(base_dir: str, iteration: int, img_name: str) -> torch.Tensor:
+def load_tensor(
+    base_dir: str,
+    iteration: int,
+    img_name: str,
+    map_location: Optional[str] = None
+) -> torch.Tensor:
     """
     Load a PyTorch tensor from a specified iteration folder.
 
@@ -24,6 +29,11 @@ def load_tensor(base_dir: str, iteration: int, img_name: str) -> torch.Tensor:
         iteration (int): Non-negative index of the iteration folder to load from.
         img_name (str): Image filename (with or without extension) or full path; only the
                         base name (without extension) is used to locate the tensor.
+        map_location (str, optional):
+            Passed through to `torch.load(..., map_location=...)`.
+            If None (default), the function will automatically set
+            `map_location="cpu"` when `torch.cuda.is_available()` is False
+            to avoid CUDA deserialization errors on CPU-only machines.
 
     Returns:
         torch.Tensor: The loaded tensor. For binary masks, convert using .bool().
@@ -47,12 +57,16 @@ def load_tensor(base_dir: str, iteration: int, img_name: str) -> torch.Tensor:
 
     if not os.path.exists(tensor_path):
         raise FileNotFoundError(f"Tensor not found: {tensor_path}")
+    
+    # Default to CPU when CUDA is unavailable to prevent deserialization errors.
+    if map_location is None and not torch.cuda.is_available():
+        map_location = "cpu"
 
-    return torch.load(tensor_path)
+    return torch.load(tensor_path, map_location=map_location)
 
 
 def pick_random_tensor(
-    base_dir: str, iteration: int, return_path: bool = False
+    base_dir: str, iteration: int, return_path: bool = False, map_location: Optional[str] = None
 ) -> Union[torch.Tensor, str]:
     """
     Load a random .pt tensor from a specified iteration folder.
@@ -67,6 +81,11 @@ def pick_random_tensor(
         iteration (int): Non-negative index of the iteration folder to sample from.
         return_path (bool, optional): If True, return the file path of the selected
             tensor instead of loading it. Defaults to False.
+        map_location (str, optional):
+            Passed through to `torch.load(..., map_location=...)`.
+            If None (default), the function will automatically set
+            `map_location="cpu"` when `torch.cuda.is_available()` is False
+            to avoid CUDA deserialization errors on CPU-only machines.
 
     Returns:
         torch.Tensor or str
@@ -100,7 +119,14 @@ def pick_random_tensor(
 
     tensor_path = random.choice(tensor_files)
 
-    return tensor_path if return_path else torch.load(tensor_path)
+    if return_path:
+        return tensor_path
+    
+    # Default to CPU when CUDA is unavailable to prevent deserialization errors.
+    if map_location is None and not torch.cuda.is_available():
+        map_location = "cpu"
+
+    return torch.load(tensor_path, map_location=map_location)
 
 
 def load_matching_tensor(

@@ -4,3 +4,8 @@ defaults:
   - data: polar_lows
   - mode: adversarial_erasing
   - training: base
+
+skip_training: true
+mode:
+  masks:
+    remove_background: true
