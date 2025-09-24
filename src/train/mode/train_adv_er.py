@@ -11,11 +11,9 @@ import torch.nn.functional as F
 from lightning.pytorch.callbacks import ModelCheckpoint
 from omegaconf import DictConfig
 from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.metrics.road import (
-    ROADMostRelevantFirstAverage,
-    ROADLeastRelevantFirstAverage,
-    ROADCombined
-)
+from pytorch_grad_cam.metrics.road import (ROADCombined,
+                                           ROADLeastRelevantFirstAverage,
+                                           ROADMostRelevantFirstAverage)
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputSoftmaxTarget
 from torchvision import transforms
 from tqdm import tqdm
@@ -264,7 +262,7 @@ def _generate_and_save_heatmaps(
         percentiles = [75, 85]
         # mrf = ROADMostRelevantFirstAverage(percentiles)
         # lrf = ROADLeastRelevantFirstAverage(percentiles)
-        comb = ROADCombined(percentiles)
+        # comb = ROADCombined(percentiles)
 
         with torch.no_grad():
             # Loop through batches
@@ -300,7 +298,7 @@ def _generate_and_save_heatmaps(
                         grayscale_cam = cam(img, targets=targets)[0, :]
                         # mrf_score = mrf(img, grayscale_cam[None], targets, model).item()
                         # lrf_score = lrf(img, grayscale_cam[None], targets, model).item()
-                        comb_score = comb(img, grayscale_cam[None], targets, model).item()
+                        # comb_score = comb(img, grayscale_cam[None], targets, model).item()
                     
                     heatmap = torch.from_numpy(grayscale_cam)
 
@@ -319,7 +317,7 @@ def _generate_and_save_heatmaps(
                     pos_prob = probs[0, target_class].item()
                     pred = int(torch.argmax(logits).item())
 
-                    suffix = f"{pred}_{comb_score*100:.2f}"
+                    suffix = f"{pred}_{pos_prob:.2f}"
 
                     # Log heatmap and image overlay to Neptune, just for batch 0
                     if batch_idx == 0:

@@ -4,16 +4,15 @@ train_data_transform: val
 lightning_model: adversarial_erasing
 erase_strategy: heatmap
 
-## SPECIFIC TO ADVERSARIAL ERASING ##
 train_config:
   max_iterations: 10
   heatmaps:
     base_directory: out/heatmaps
     threshold: 0.7
     fill_color: 0
-    negative_load_strategy: pl_specific
+    negative_load_strategy: random
     area_envelope:
-      start_iteration: 2
+      start_iteration: 3
       scale: 0.3
 
 masks:

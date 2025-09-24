@@ -1,5 +1,5 @@
 defaults:
-  - cancer_config
+  - bus
 
 mode:
   train_config:
