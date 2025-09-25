@@ -1,0 +1,6 @@
+defaults:
+  - bus
+
+mode:
+  train_config:
+    max_iterations: 1

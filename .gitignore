@@ -16,8 +16,9 @@ __pycache__/
 # VSCode files
 /.vscode
 
-# Archived files
+# Files
 /archive
+/local_save
 
 # Data files
 /data

@@ -3,7 +3,7 @@ import torch
 from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 
-from src.train.mode import train_adv_er, train_single
+from src.train.mode import train_adv_er
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -18,13 +18,7 @@ def run(cfg: DictConfig) -> None:
     validate_hardware_config(cfg)
     torch.set_float32_matmul_precision(cfg.hardware.matmul_precision)
 
-    mode = cfg.mode.name
-    if mode == "single":
-        train_single.run(cfg)
-    elif mode == "adversarial_erasing":
-        train_adv_er.run(cfg)
-    else:
-        raise ValueError(f"Invalid mode: {mode}")
+    train_adv_er.run(cfg)
 
 
 def validate_hardware_config(cfg):
