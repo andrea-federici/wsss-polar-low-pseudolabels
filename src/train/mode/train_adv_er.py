@@ -1,4 +1,6 @@
+import csv
 import glob
+import math
 import os
 from datetime import datetime
 from itertools import chain
@@ -6,14 +8,15 @@ from typing import List, Tuple, cast
 
 import cv2
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.callbacks import ModelCheckpoint
 from omegaconf import DictConfig
-from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.metrics.road import (ROADCombined,
-                                           ROADLeastRelevantFirstAverage,
-                                           ROADMostRelevantFirstAverage)
+from pytorch_grad_cam.metrics.cam_mult_image import \
+    CamMultImageConfidenceChange
+from pytorch_grad_cam.metrics.road import (ROADLeastRelevantFirst,
+                                           ROADMostRelevantFirst)
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputSoftmaxTarget
 from torchvision import transforms
 from tqdm import tqdm
@@ -24,11 +27,72 @@ from src.data.adversarial_erasing_io import (_area_targeted_envelope,
                                              load_accumulated_heatmap,
                                              load_tensor)
 from src.data.data_loaders import create_class_dataloader
-from src.data.image_processing import erase_region_using_heatmap
+from src.data.image_processing import (convert_to_np_array,
+                                       erase_region_using_heatmap)
 from src.post.masks import generate_masks, generate_negative_masks
 from src.train.setup import setup_training
 from src.utils.misc import resize_heatmap
 from src.utils.neptune_utils import NeptuneLogger
+
+# default precision if a field isn't listed below
+_DEFAULT_DECIMALS = 4
+
+# per-field precision (tweak as you like)
+_FLOAT_PRECISION = {
+    "pos_prob": 4,
+    "keep_prob": 4,
+    "MRF": 4, "LRF": 4, "Combined": 4,
+    "rel_MRF": 4, "rel_LRF": 4,
+    "logprob_pos": 4,
+    "margin": 3,
+    "cam_area_ratio": 4, "cam_largest_comp_ratio": 4, "cam_entropy": 4,
+}
+
+def _format_row_for_csv(row: dict) -> dict:
+    out = {}
+    for k, v in row.items():
+        if isinstance(v, (float, np.floating)):
+            d = _FLOAT_PRECISION.get(k, _DEFAULT_DECIMALS)
+            fv = round(float(v), d)
+            # kill negative zero
+            if fv == 0.0:
+                fv = 0.0
+            out[k] = fv
+        else:
+            out[k] = v
+    return out
+
+
+def _cam_entropy(cam_np: np.ndarray) -> float:
+    """Shannon entropy of the CAM distribution, normalized to [0,1]."""
+    p = cam_np.astype(np.float64)
+    p = p / (p.sum() + 1e-12)
+    ent = -(p * np.log(p + 1e-12)).sum()
+    return float(ent / math.log(p.size + 1e-12))
+
+def _mask_stats(cam_np: np.ndarray, percentile: int):
+    """Stats for the top-p% CAM region."""
+    thr = np.quantile(cam_np, percentile / 100.0)
+    mask = (cam_np >= thr).astype(np.uint8)
+    area_ratio = float(mask.mean())
+    num_labels, labels = cv2.connectedComponents(mask, connectivity=8)
+    num_components = int(max(0, num_labels - 1))
+    if num_components > 0:
+        sizes = np.bincount(labels.ravel())[1:]
+        largest_comp_ratio = float(sizes.max() / sizes.sum())
+    else:
+        largest_comp_ratio = 0.0
+    return area_ratio, num_components, largest_comp_ratio, mask.astype(np.float32)
+
+def _append_row(csv_path: str, row: dict):
+    row = _format_row_for_csv(row)
+    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+    write_header = not os.path.exists(csv_path)
+    with open(csv_path, "a", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(row.keys()))
+        if write_header:
+            w.writeheader()
+        w.writerow(row)
 
 
 def run(cfg: DictConfig) -> None:
@@ -258,11 +322,9 @@ def _generate_and_save_heatmaps(
         neg_count = 0
 
         targets = [ClassifierOutputSoftmaxTarget(1)]
-        cam = GradCAM(model=model, target_layers=[model.get_last_conv_layer()])
-        percentiles = [75, 85]
-        # mrf = ROADMostRelevantFirstAverage(percentiles)
-        # lrf = ROADLeastRelevantFirstAverage(percentiles)
-        # comb = ROADCombined(percentiles)
+        percentile = 80
+        mrf = ROADMostRelevantFirst(percentile)
+        lrf = ROADLeastRelevantFirst(percentile)
 
         with torch.no_grad():
             # Loop through batches
@@ -295,12 +357,14 @@ def _generate_and_save_heatmaps(
                         )
 
                     with torch.enable_grad():
-                        grayscale_cam = cam(img, targets=targets)[0, :]
-                        # mrf_score = mrf(img, grayscale_cam[None], targets, model).item()
-                        # lrf_score = lrf(img, grayscale_cam[None], targets, model).item()
-                        # comb_score = comb(img, grayscale_cam[None], targets, model).item()
+                        heatmap = gradcam.generate_heatmap(
+                            model,
+                            img,
+                            target_class=target_class,
+                        )
+                        heatmap = resize_heatmap(heatmap, target_size)
                     
-                    heatmap = torch.from_numpy(grayscale_cam)
+                    # heatmap = torch.from_numpy(grayscale_cam)
 
                     img_overlay = gradcam.overlay_heatmap(img, heatmap)
 
@@ -317,10 +381,77 @@ def _generate_and_save_heatmaps(
                     pos_prob = probs[0, target_class].item()
                     pred = int(torch.argmax(logits).item())
 
-                    suffix = f"{pred}_{pos_prob:.2f}"
-
                     # Log heatmap and image overlay to Neptune, just for batch 0
-                    if batch_idx == 0:
+                    if batch_idx in [0, 1, 2]:
+                        # --- after logits/probs/pred are computed ---
+
+                        # Paths for local logging
+                        metrics_dir = os.path.join(base_heatmaps_dir, "metrics")
+                        iter_csv = os.path.join(metrics_dir, f"iteration_{iteration}.csv")
+                        all_csv  = os.path.join(metrics_dir, "features_all.csv")
+
+                        # Convert heatmap to numpy in [0,1]
+                        heatmap_np = heatmap.detach().cpu().numpy().astype("float32")
+                        heatmap_np = (heatmap_np - heatmap_np.min()) / (heatmap_np.max() - heatmap_np.min() + 1e-6)
+
+                        # ROAD targets (probability space for interpretability)
+                        targets_road = [ClassifierOutputSoftmaxTarget(target_class)]
+
+                        # ROAD scores @ your chosen percentile (you already instantiated mrf/lrf above)
+                        with torch.inference_mode():
+                            mrf_score = mrf(resized_img, heatmap_np[None], targets_road, model).item()
+                            lrf_score = lrf(resized_img, heatmap_np[None], targets_road, model).item()
+                        combined = (lrf_score - mrf_score) / 2.0
+
+                        # Relative drops (guard against saturation)
+                        rel_mrf = max(0.0, -mrf_score) / max(1e-6, pos_prob)
+                        rel_lrf = max(0.0, -lrf_score) / max(1e-6, pos_prob)
+
+                        # Margin and log-prob features
+                        logprob_pos = torch.log_softmax(logits, dim=1)[0, target_class].item()
+                        z = logits[0]
+                        z_pos = z[target_class].item()
+                        z_others = torch.cat([z[:target_class], z[target_class+1:]]) if z.numel() > 1 else z.new_tensor([-float("inf")])
+                        margin = (z_pos - z_others.max().item()) if z_others.numel() > 0 else z_pos
+
+                        # CAM stats @ same percentile
+                        area_ratio, num_comp, largest_comp_ratio, top_mask = _mask_stats(heatmap_np, percentile)
+                        cam_entropy = _cam_entropy(heatmap_np)
+
+                        # Sufficiency (keep-only top region): use inverse mask with CamMultImageConfidenceChange
+                        # This returns a confidence change; by convention in this lib it's (s_orig - s_pert).
+                        cmicc = CamMultImageConfidenceChange()
+                        with torch.inference_mode():
+                            drop_keep = cmicc(resized_img, (1.0 - top_mask)[None, ...], targets_road, model, return_visualization=False)
+                        drop_keep = float(drop_keep)  # ≈ s_orig - s_pert (if your version returns s_pert - s_orig, flip sign)
+                        keep_prob = float(pos_prob - drop_keep)
+                        keep_prob = max(0.0, min(1.0, keep_prob))  # clamp to [0,1]
+
+                        # Build and save the row
+                        row = {
+                            "img_id": img_name,
+                            "iteration": iteration,
+                            "pred": pred,
+                            "pos_prob": float(pos_prob),
+                            "logprob_pos": float(logprob_pos),
+                            "margin": float(margin),
+                            "MRF": float(mrf_score),
+                            "LRF": float(lrf_score),
+                            "Combined": float(combined),
+                            "rel_MRF": float(rel_mrf),
+                            "rel_LRF": float(rel_lrf),
+                            "keep_prob": float(keep_prob),
+                            "cam_area_ratio": float(area_ratio),
+                            "cam_num_components": int(num_comp),
+                            "cam_largest_comp_ratio": float(largest_comp_ratio),
+                            "cam_entropy": float(cam_entropy),
+                            "percentile": int(percentile),
+                            "path": img_path,
+                        }
+                        _append_row(iter_csv, row)
+                        _append_row(all_csv, row)
+
+                        suffix = f"{pred}_pp={pos_prob:.2f}_mrf={mrf_score:.2f}_lrf={lrf_score:.2f}_comb={combined:.2f}"
                         logger.log_tensor_img(
                             img_overlay, name=f"heatmap_{img_name}_{suffix}"
                         )
