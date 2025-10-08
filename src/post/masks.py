@@ -317,36 +317,16 @@ def generate_negative_masks(
 # project:
 # PYTHONPATH=$(pwd) python3 src/post/masks.py
 if __name__ == "__main__":
-    base_heatmaps_dir = "out/heatmaps"
-    mask_dir = "out/masks"
+    base_heatmaps_dir = "local_save/heatmaps"
+    mask_dir = "local_save/out2_new/masks"
     mask_size = (512, 512)
     threshold = 0.7
-    iteration = 1
+    iteration = 3
 
     import os
 
     import cv2
     import numpy as np
-
-    # Input and output folders
-    in_dir = "out/heatmaps/iteration_0"
-    out_dir = "out/heatmaps/iteration_0"
-    os.makedirs(out_dir, exist_ok=True)
-
-    # Loop over all files in the folder
-    for fname in os.listdir(in_dir):
-        if fname.lower().endswith((".pt")):
-            # Load tensor
-            tensor = torch.load(os.path.join(in_dir, fname))
-
-            # Create all-ones tensor with same shape & dtype
-            ones_tensor = torch.ones_like(tensor)
-
-            # Save with same filename
-            out_path = os.path.join(out_dir, fname)
-            torch.save(ones_tensor, out_path)
-
-            print(f"Saved all-ones heatmap: {out_path}")
 
     # vis
     generate_masks(
@@ -356,7 +336,7 @@ if __name__ == "__main__":
         threshold=threshold,
         type="multiclass",
         iteration=iteration,
-        remove_background=True,
+        remove_background=False,
         vis=True,
     )
 
@@ -374,7 +354,7 @@ if __name__ == "__main__":
     )
 
     generate_negative_masks(
-        negative_images_dir="cancer_data/train/neg",
+        negative_images_dir="data/bus/train/neg",
         mask_dir=no_vis_dir,
         mask_size=mask_size,
     )

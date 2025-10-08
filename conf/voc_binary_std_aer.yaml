@@ -1,0 +1,8 @@
+defaults:
+  - voc_binary
+
+mode:
+  train_config:
+    heatmaps:
+      area_envelope:
+        start_iteration: 100  # disables CORE

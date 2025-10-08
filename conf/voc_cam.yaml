@@ -1,0 +1,6 @@
+defaults:
+  - voc_binary
+
+mode:
+  train_config:
+    max_iterations: 1

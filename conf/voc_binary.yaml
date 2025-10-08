@@ -7,13 +7,12 @@ defaults:
 
 mode:
   train_config:
-    max_iterations: 6
+    max_iterations: 10
     heatmaps:
       threshold: 0.8
       negative_load_strategy: random
-      area_envelope:
-        scale: 0.2
   masks:
     remove_background: false
   
 skip_training: false
+seed: 42

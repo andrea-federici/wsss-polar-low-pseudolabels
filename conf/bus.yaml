@@ -15,3 +15,6 @@ mode:
         scale: 0.2
   masks:
     remove_background: false
+
+skip_training: false
+seed: 42

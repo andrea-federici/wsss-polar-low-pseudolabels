@@ -6,3 +6,4 @@ defaults:
   - training: base
 
 skip_training: false
+seed: 42

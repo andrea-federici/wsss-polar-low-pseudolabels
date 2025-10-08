@@ -1,0 +1,6 @@
+defaults:
+  - polar_lows
+
+mode:
+  train_config:
+    max_iterations: 1

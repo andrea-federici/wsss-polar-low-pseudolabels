@@ -46,6 +46,7 @@ _FLOAT_PRECISION = {
     "logprob_pos": 4,
     "margin": 3,
     "cam_area_ratio": 4, "cam_largest_comp_ratio": 4, "cam_entropy": 4,
+    "part_ratio": 4, "gini": 4, "rg_norm": 4, "compactness": 4, "hull_fill": 4,
 }
 
 def _format_row_for_csv(row: dict) -> dict:
@@ -61,6 +62,63 @@ def _format_row_for_csv(row: dict) -> dict:
         else:
             out[k] = v
     return out
+
+
+import math
+
+import cv2
+import numpy as np
+
+
+def participation_ratio(cam: np.ndarray) -> float:
+    """Intensity-based 'effective area' in [1/(HW), 1]; higher = more spread."""
+    x = cam.astype(np.float64)
+    x = x / (x.sum() + 1e-12)
+    return float((x.sum()**2) / (np.square(x).sum() + 1e-12))
+
+def gini_intensity(cam: np.ndarray) -> float:
+    """Inequality of intensities in [0,1]; higher = more concentrated (less spread)."""
+    x = cam.ravel().astype(np.float64)
+    x = x[x>0]
+    if x.size == 0: return 0.0
+    x.sort()
+    n = x.size
+    cum = np.cumsum(x)
+    return float((n + 1 - 2*(cum.sum()/cum[-1])) / n)
+
+def weighted_radius_of_gyration(cam: np.ndarray) -> float:
+    """Std distance to the intensity-weighted centroid, normalized by image diag."""
+    H, W = cam.shape
+    y, x = np.mgrid[0:H, 0:W]
+    w = cam.astype(np.float64)
+    w_sum = w.sum() + 1e-12
+    cx = (w * x).sum() / w_sum
+    cy = (w * y).sum() / w_sum
+    r2 = (((x - cx)**2 + (y - cy)**2) * w).sum() / w_sum
+    r = math.sqrt(r2)
+    diag = math.sqrt(H*H + W*W)
+    return float(r / (diag + 1e-12))  # in [0,~0.5]
+
+def shape_compactness(mask: np.ndarray) -> float:
+    """4πA/P^2 in (0,1]; circle=1. Needs a binary mask."""
+    mask_u8 = (mask>0).astype(np.uint8)
+    A = float(mask_u8.sum())
+    if A == 0: return 0.0
+    contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    P = sum(cv2.arcLength(c, True) for c in contours)
+    if P == 0: return 0.0
+    return float(4*math.pi*A/(P*P))
+
+def hull_fill_ratio(mask: np.ndarray) -> float:
+    """Area / convex hull area in (0,1]; closer to 1 = less concave."""
+    mask_u8 = (mask>0).astype(np.uint8)
+    contours, _ = cv2.findContours(mask_u8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours: return 0.0
+    A = float(mask_u8.sum())
+    hull = cv2.convexHull(np.vstack(contours))
+    hullA = float(cv2.contourArea(hull))
+    if hullA <= 0: return 0.0
+    return float(A / hullA)
 
 
 def _cam_entropy(cam_np: np.ndarray) -> float:
@@ -134,7 +192,7 @@ def run(cfg: DictConfig) -> None:
             trainer = train_setup.trainer
             trainer.fit(lightning_model, train_setup.train_loader, train_setup.val_loader)
 
-            # Load best model checkpoint
+            # # Load best model checkpoint
             assert trainer.checkpoint_callback is not None, "Checkpoint callback not configured."
             ckpt_cb = cast(ModelCheckpoint, trainer.checkpoint_callback)
             best_ckpt_path = ckpt_cb.best_model_path
@@ -418,6 +476,13 @@ def _generate_and_save_heatmaps(
                         area_ratio, num_comp, largest_comp_ratio, top_mask = _mask_stats(heatmap_np, percentile)
                         cam_entropy = _cam_entropy(heatmap_np)
 
+                        # --- Spread / compactness metrics ---
+                        part_ratio = participation_ratio(heatmap_np)            # higher = more spread
+                        gini = gini_intensity(heatmap_np)                       # higher = more concentrated
+                        rg_norm = weighted_radius_of_gyration(heatmap_np)       # higher = more spread
+                        compactness = shape_compactness(top_mask)               # closer to 1 = round/compact
+                        hfill = hull_fill_ratio(top_mask)                       # closer to 1 = less concave
+
                         # Sufficiency (keep-only top region): use inverse mask with CamMultImageConfidenceChange
                         # This returns a confidence change; by convention in this lib it's (s_orig - s_pert).
                         cmicc = CamMultImageConfidenceChange()
@@ -445,6 +510,11 @@ def _generate_and_save_heatmaps(
                             "cam_num_components": int(num_comp),
                             "cam_largest_comp_ratio": float(largest_comp_ratio),
                             "cam_entropy": float(cam_entropy),
+                            "part_ratio": float(part_ratio),
+                            "gini": float(gini),
+                            "rg_norm": float(rg_norm),
+                            "compactness": float(compactness),
+                            "hull_fill": float(hfill),
                             "percentile": int(percentile),
                             "path": img_path,
                         }
