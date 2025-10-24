@@ -7,3 +7,4 @@ defaults:
 
 skip_training: false
 seed: 42
+deterministic: true

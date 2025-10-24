@@ -285,7 +285,7 @@ def pick_random_image_path(train_dir: str, class_name: str = None) -> str:
         )
 
     # Get all image files in the class directory
-    image_files = os.listdir(class_dir)
+    image_files = sorted(os.listdir(class_dir))
 
     # Check if there are any images in the directory
     if not image_files:

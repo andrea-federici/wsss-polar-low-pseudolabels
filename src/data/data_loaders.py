@@ -2,10 +2,12 @@ import os
 from typing import Optional, Tuple
 
 import torch
-from torch.utils.data import DataLoader, Subset, WeightedRandomSampler, default_collate
+from torch.utils.data import (DataLoader, Subset, WeightedRandomSampler,
+                              default_collate)
 from torchvision import datasets, transforms
 
 from src import data
+from src.utils.seed import make_torch_generator, make_worker_init_fn
 
 # Registry for supported dataset types
 _DATASET_REGISTRY = {
@@ -36,6 +38,7 @@ def create_data_loaders(
     transform_test: Optional[transforms.Compose] = None,
     dataset_type: str = "standard",
     pin_memory: bool = False,
+    seed: Optional[int] = None,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Creates and returns DataLoaders for training, validation, and testing datasets.
@@ -89,7 +92,7 @@ def create_data_loaders(
 
     # Split training data while preserving class proportions
     train_data, train_indices, val_indices = (
-        data.utils.dataset_stratified_shuffle_split(train_val_data)
+        data.utils.dataset_stratified_shuffle_split(train_val_data, random_state=seed)
     )
 
     ## LOAD VAL DATA ##
@@ -108,9 +111,18 @@ def create_data_loaders(
     # Assign weights to each sample
     sample_weights = [class_weights[train_val_data.targets[i]] for i in train_indices]
 
+    sampler_generator = make_torch_generator(seed)
     sampler = WeightedRandomSampler(
-        weights=sample_weights, num_samples=len(sample_weights), replacement=True
+        weights=sample_weights,
+        num_samples=len(sample_weights),
+        replacement=True,
+        generator=sampler_generator,
     )
+
+    def _seed_with_offset(offset: int) -> Optional[int]:
+        if seed is None:
+            return None
+        return seed + offset
 
     def collate_fn(batch):
         first = batch[0]
@@ -124,7 +136,9 @@ def create_data_loaders(
             return default_collate(batch)
 
     # DataLoader factory
-    def make_loader(dataset, *, sampler=None, shuffle=None):
+    def make_loader(dataset, *, sampler=None, shuffle=None, generator_offset: int = 0):
+        generator = make_torch_generator(_seed_with_offset(generator_offset))
+        worker_init_fn = make_worker_init_fn(_seed_with_offset(generator_offset))
         return DataLoader(
             dataset,
             batch_size=batch_size,
@@ -133,11 +147,13 @@ def create_data_loaders(
             num_workers=num_workers,
             pin_memory=pin_memory,
             collate_fn=collate_fn,
+            worker_init_fn=worker_init_fn,
+            generator=generator,
         )
 
-    train_loader = make_loader(train_data, sampler=sampler, shuffle=None)
-    val_loader = make_loader(val_data, sampler=None, shuffle=False)
-    test_loader = make_loader(test_data, sampler=None, shuffle=False)
+    train_loader = make_loader(train_data, sampler=sampler, shuffle=None, generator_offset=0)
+    val_loader = make_loader(val_data, sampler=None, shuffle=False, generator_offset=1)
+    test_loader = make_loader(test_data, sampler=None, shuffle=False, generator_offset=2)
 
     return train_loader, val_loader, test_loader
 
@@ -151,6 +167,7 @@ def create_class_dataloader(
     transform: transforms.Compose,
     dataset_type: str = "standard",
     shuffle: bool = False,
+    seed: Optional[int] = None,
 ) -> DataLoader:
     """
     Creates a DataLoader for samples belonging to a specific target class from the dataset.
@@ -187,9 +204,14 @@ def create_class_dataloader(
     class_indices = [i for i, label in enumerate(ds.targets) if label == target_class]
 
     class_data = Subset(ds, class_indices)
+    generator = make_torch_generator(seed)
+    worker_init_fn = make_worker_init_fn(seed)
+
     return DataLoader(
         class_data,
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
+        generator=generator,
+        worker_init_fn=worker_init_fn,
     )

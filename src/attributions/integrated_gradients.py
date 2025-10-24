@@ -254,7 +254,7 @@ def overlay_heatmap(
     green_heatmap[:, :, 1] = np.clip(heatmap_thresholded, 0, 1)
 
     # Apply a small Gaussian blur to make dots more visible
-    green_heatmap = cv2.GaussianBlur(green_heatmap, (15, 15), 0)
+    green_heatmap = cv2.GaussianBlur(green_heatmap, (7, 7), 0)
 
     # Blend the heatmap with the original image
     image_with_heatmap = cv2.addWeighted(green_heatmap, alpha, img_np, 1 - alpha, 0)

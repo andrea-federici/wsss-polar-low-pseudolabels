@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 import lightning.pytorch.callbacks as cb
 from lightning.pytorch import LightningModule, Trainer
@@ -25,7 +26,7 @@ class TrainSetup:
     logger: NeptuneLogger
 
 
-def setup_training(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
+def setup_training(cfg: DictConfig, *, iteration: Optional[int] = None) -> TrainSetup:
     device = cfg.hardware.device
 
     ## LOGGER ##
@@ -37,6 +38,8 @@ def setup_training(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
 
     ## DATA LOADERS ##
     aug_config = to_aug_config(cfg.data.transforms)
+    base_seed = cfg.get("seed", None)
+    data_seed = None if base_seed is None else base_seed + (iteration or 0)
     train_loader, val_loader, _ = create_data_loaders(
         cfg.data.directory,
         batch_size=train_cfg.batch_size,
@@ -45,6 +48,7 @@ def setup_training(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
         transform_val=to_compose(aug_config, "val"),
         dataset_type=cfg.mode.dataset_type,
         pin_memory=True if device == "cuda" else False,
+        seed=data_seed,
     )
 
     ## LOSS AND OPTIMIZER ##
@@ -164,6 +168,7 @@ def setup_training(cfg: DictConfig, *, iteration: int = None) -> TrainSetup:
         check_val_every_n_epoch=1,
         enable_progress_bar=True,
         log_every_n_steps=1,
+        deterministic=cfg.get("deterministic", False),
     )
 
     return TrainSetup(

@@ -149,7 +149,7 @@ def generate_masks(
     os.makedirs(mask_dir, exist_ok=True)
     iteration_dir = os.path.join(base_heatmaps_dir, f"iteration_{iteration}")
     heatmap_filenames = [
-        f for f in os.listdir(iteration_dir) if f.endswith(PYTORCH_EXTENSION)
+        f for f in sorted(os.listdir(iteration_dir)) if f.endswith(PYTORCH_EXTENSION)
     ]
     print(f"Loaded {len(heatmap_filenames)} heatmaps.")
 
@@ -293,7 +293,7 @@ def generate_negative_masks(
     # List all .png/.jpg/.jpeg files in the negative_images_dir
     image_filenames = [
         f
-        for f in os.listdir(negative_images_dir)
+        for f in sorted(os.listdir(negative_images_dir))
         if os.path.splitext(f)[1].lower() in [".png", ".jpg", ".jpeg"]
     ]
 

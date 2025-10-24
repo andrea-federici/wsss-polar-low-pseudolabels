@@ -9,10 +9,14 @@ mode:
   train_config:
     max_iterations: 10
     heatmaps:
-      threshold: 0.8
+      threshold: 0.85
       negative_load_strategy: random
+      area_envelope:
+        start_iteration: 4
+        scale: 0.15
   masks:
     remove_background: false
   
 skip_training: false
 seed: 42
+deterministic: true

@@ -12,9 +12,11 @@ mode:
       threshold: 0.9
       negative_load_strategy: random
       area_envelope:
-        scale: 0.2
+        start_iteration: 2
+        scale: 0.15
   masks:
     remove_background: false
 
 skip_training: false
 seed: 42
+deterministic: true

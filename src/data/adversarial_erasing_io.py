@@ -110,7 +110,7 @@ def pick_random_tensor(
 
     tensor_files = [
         os.path.join(iteration_folder, f)
-        for f in os.listdir(iteration_folder)
+        for f in sorted(os.listdir(iteration_folder))
         if f.endswith(PYTORCH_EXTENSION)
     ]
 
@@ -169,7 +169,7 @@ def load_matching_tensor(
 
     matching_files = [
         f
-        for f in os.listdir(iteration_folder)
+        for f in sorted(os.listdir(iteration_folder))
         if f.startswith(img_prefix) and f.endswith(PYTORCH_EXTENSION)
     ]
 
@@ -278,7 +278,7 @@ def load_accumulated_heatmap(
 
         # Apply envelope-based restriction from ``envelope_start`` onward.
         current_binary = accumulated_heatmap > threshold
-        if it >= envelope_start:
+        if it >= envelope_start-1:
             envelope = _area_targeted_envelope(prev_binary, envelope_scale)
             current_binary = current_binary & envelope
             accumulated_heatmap = accumulated_heatmap * envelope.float()

@@ -4,7 +4,7 @@ import math
 import os
 from datetime import datetime
 from itertools import chain
-from typing import List, Tuple, cast
+from typing import List, Optional, Tuple, cast
 
 import cv2
 import matplotlib.pyplot as plt
@@ -210,6 +210,7 @@ def run(cfg: DictConfig) -> None:
                 ),
                 "val",
             )
+            base_seed = cfg.get("seed", None)
             _generate_and_save_heatmaps(
                 best_lit.model,
                 data_dir=train_dir,
@@ -224,13 +225,14 @@ def run(cfg: DictConfig) -> None:
                 fill_color=fill_color,
                 logger=logger,
                 device=cfg.hardware.device,
+                seed=None if base_seed is None else base_seed + iteration,
             )
 
             if iteration > 0:
                 patterns = ("*.png", "*.jpg", "*.jpeg")
                 sample_paths = sorted(chain.from_iterable(
                     glob.glob(os.path.join(train_dir, "pos", pat)) for pat in patterns
-                ))[:10]
+                ))[:20]
 
                 debug_dir = os.path.join(
                     "out", "debug", "envelopes", f"iteration_{iteration}"
@@ -357,6 +359,7 @@ def _generate_and_save_heatmaps(
     logger: NeptuneLogger,
     target_class: int = 1,
     device: str = "cpu",
+    seed: Optional[int] = None,
 ):
     was_training = model.training
     model.eval()
@@ -373,6 +376,7 @@ def _generate_and_save_heatmaps(
             num_workers=4,
             dataset_type="adversarial_erasing",
             shuffle=False,
+            seed=seed,
         )
         os.makedirs(save_dir, exist_ok=True)
 
@@ -453,75 +457,76 @@ def _generate_and_save_heatmaps(
                         heatmap_np = (heatmap_np - heatmap_np.min()) / (heatmap_np.max() - heatmap_np.min() + 1e-6)
 
                         # ROAD targets (probability space for interpretability)
-                        targets_road = [ClassifierOutputSoftmaxTarget(target_class)]
+                        # targets_road = [ClassifierOutputSoftmaxTarget(target_class)]
 
-                        # ROAD scores @ your chosen percentile (you already instantiated mrf/lrf above)
-                        with torch.inference_mode():
-                            mrf_score = mrf(resized_img, heatmap_np[None], targets_road, model).item()
-                            lrf_score = lrf(resized_img, heatmap_np[None], targets_road, model).item()
-                        combined = (lrf_score - mrf_score) / 2.0
+                        # # ROAD scores @ your chosen percentile (you already instantiated mrf/lrf above)
+                        # with torch.inference_mode():
+                        #     mrf_score = mrf(resized_img, heatmap_np[None], targets_road, model).item()
+                        #     lrf_score = lrf(resized_img, heatmap_np[None], targets_road, model).item()
+                        # combined = (lrf_score - mrf_score) / 2.0
 
-                        # Relative drops (guard against saturation)
-                        rel_mrf = max(0.0, -mrf_score) / max(1e-6, pos_prob)
-                        rel_lrf = max(0.0, -lrf_score) / max(1e-6, pos_prob)
+                        # # Relative drops (guard against saturation)
+                        # rel_mrf = max(0.0, -mrf_score) / max(1e-6, pos_prob)
+                        # rel_lrf = max(0.0, -lrf_score) / max(1e-6, pos_prob)
 
-                        # Margin and log-prob features
-                        logprob_pos = torch.log_softmax(logits, dim=1)[0, target_class].item()
-                        z = logits[0]
-                        z_pos = z[target_class].item()
-                        z_others = torch.cat([z[:target_class], z[target_class+1:]]) if z.numel() > 1 else z.new_tensor([-float("inf")])
-                        margin = (z_pos - z_others.max().item()) if z_others.numel() > 0 else z_pos
+                        # # Margin and log-prob features
+                        # logprob_pos = torch.log_softmax(logits, dim=1)[0, target_class].item()
+                        # z = logits[0]
+                        # z_pos = z[target_class].item()
+                        # z_others = torch.cat([z[:target_class], z[target_class+1:]]) if z.numel() > 1 else z.new_tensor([-float("inf")])
+                        # margin = (z_pos - z_others.max().item()) if z_others.numel() > 0 else z_pos
 
-                        # CAM stats @ same percentile
-                        area_ratio, num_comp, largest_comp_ratio, top_mask = _mask_stats(heatmap_np, percentile)
-                        cam_entropy = _cam_entropy(heatmap_np)
+                        # # CAM stats @ same percentile
+                        # area_ratio, num_comp, largest_comp_ratio, top_mask = _mask_stats(heatmap_np, percentile)
+                        # cam_entropy = _cam_entropy(heatmap_np)
 
-                        # --- Spread / compactness metrics ---
-                        part_ratio = participation_ratio(heatmap_np)            # higher = more spread
-                        gini = gini_intensity(heatmap_np)                       # higher = more concentrated
-                        rg_norm = weighted_radius_of_gyration(heatmap_np)       # higher = more spread
-                        compactness = shape_compactness(top_mask)               # closer to 1 = round/compact
-                        hfill = hull_fill_ratio(top_mask)                       # closer to 1 = less concave
+                        # # --- Spread / compactness metrics ---
+                        # part_ratio = participation_ratio(heatmap_np)            # higher = more spread
+                        # gini = gini_intensity(heatmap_np)                       # higher = more concentrated
+                        # rg_norm = weighted_radius_of_gyration(heatmap_np)       # higher = more spread
+                        # compactness = shape_compactness(top_mask)               # closer to 1 = round/compact
+                        # hfill = hull_fill_ratio(top_mask)                       # closer to 1 = less concave
 
-                        # Sufficiency (keep-only top region): use inverse mask with CamMultImageConfidenceChange
-                        # This returns a confidence change; by convention in this lib it's (s_orig - s_pert).
-                        cmicc = CamMultImageConfidenceChange()
-                        with torch.inference_mode():
-                            drop_keep = cmicc(resized_img, (1.0 - top_mask)[None, ...], targets_road, model, return_visualization=False)
-                        drop_keep = float(drop_keep)  # ≈ s_orig - s_pert (if your version returns s_pert - s_orig, flip sign)
-                        keep_prob = float(pos_prob - drop_keep)
-                        keep_prob = max(0.0, min(1.0, keep_prob))  # clamp to [0,1]
+                        # # Sufficiency (keep-only top region): use inverse mask with CamMultImageConfidenceChange
+                        # # This returns a confidence change; by convention in this lib it's (s_orig - s_pert).
+                        # cmicc = CamMultImageConfidenceChange()
+                        # with torch.inference_mode():
+                        #     drop_keep = cmicc(resized_img, (1.0 - top_mask)[None, ...], targets_road, model, return_visualization=False)
+                        # drop_keep = float(drop_keep)  # ≈ s_orig - s_pert (if your version returns s_pert - s_orig, flip sign)
+                        # keep_prob = float(pos_prob - drop_keep)
+                        # keep_prob = max(0.0, min(1.0, keep_prob))  # clamp to [0,1]
 
-                        # Build and save the row
-                        row = {
-                            "img_id": img_name,
-                            "iteration": iteration,
-                            "pred": pred,
-                            "pos_prob": float(pos_prob),
-                            "logprob_pos": float(logprob_pos),
-                            "margin": float(margin),
-                            "MRF": float(mrf_score),
-                            "LRF": float(lrf_score),
-                            "Combined": float(combined),
-                            "rel_MRF": float(rel_mrf),
-                            "rel_LRF": float(rel_lrf),
-                            "keep_prob": float(keep_prob),
-                            "cam_area_ratio": float(area_ratio),
-                            "cam_num_components": int(num_comp),
-                            "cam_largest_comp_ratio": float(largest_comp_ratio),
-                            "cam_entropy": float(cam_entropy),
-                            "part_ratio": float(part_ratio),
-                            "gini": float(gini),
-                            "rg_norm": float(rg_norm),
-                            "compactness": float(compactness),
-                            "hull_fill": float(hfill),
-                            "percentile": int(percentile),
-                            "path": img_path,
-                        }
-                        _append_row(iter_csv, row)
-                        _append_row(all_csv, row)
+                        # # Build and save the row
+                        # row = {
+                        #     "img_id": img_name,
+                        #     "iteration": iteration,
+                        #     "pred": pred,
+                        #     "pos_prob": float(pos_prob),
+                        #     "logprob_pos": float(logprob_pos),
+                        #     "margin": float(margin),
+                        #     "MRF": float(mrf_score),
+                        #     "LRF": float(lrf_score),
+                        #     "Combined": float(combined),
+                        #     "rel_MRF": float(rel_mrf),
+                        #     "rel_LRF": float(rel_lrf),
+                        #     "keep_prob": float(keep_prob),
+                        #     "cam_area_ratio": float(area_ratio),
+                        #     "cam_num_components": int(num_comp),
+                        #     "cam_largest_comp_ratio": float(largest_comp_ratio),
+                        #     "cam_entropy": float(cam_entropy),
+                        #     "part_ratio": float(part_ratio),
+                        #     "gini": float(gini),
+                        #     "rg_norm": float(rg_norm),
+                        #     "compactness": float(compactness),
+                        #     "hull_fill": float(hfill),
+                        #     "percentile": int(percentile),
+                        #     "path": img_path,
+                        # }
+                        # _append_row(iter_csv, row)
+                        # _append_row(all_csv, row)
 
-                        suffix = f"{pred}_pp={pos_prob:.2f}_mrf={mrf_score:.2f}_lrf={lrf_score:.2f}_comb={combined:.2f}"
+                        # suffix = f"{pred}_pp={pos_prob:.2f}_mrf={mrf_score:.2f}_lrf={lrf_score:.2f}_comb={combined:.2f}"
+                        suffix = f"{pred}_pp={pos_prob:.2f}"
                         logger.log_tensor_img(
                             img_overlay, name=f"heatmap_{img_name}_{suffix}"
                         )

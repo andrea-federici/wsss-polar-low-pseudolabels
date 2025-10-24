@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 
 from src.train.mode import train_adv_er
+from src.utils.seed import configure_seed
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -14,6 +15,11 @@ def run(cfg: DictConfig) -> None:
     cfg_copy = OmegaConf.create(cfg)  # Create a mutable copy
     cfg_copy.logger.api_key = "*****"  # Mask or remove the sensitive key
     print(OmegaConf.to_yaml(cfg_copy, resolve=True))
+
+    seed = cfg.get("seed", None)
+    deterministic = cfg.get("deterministic", False)
+    print(f"Using seed: {seed}, deterministic: {deterministic}")
+    configure_seed(seed, deterministic=deterministic)
 
     validate_hardware_config(cfg)
     torch.set_float32_matmul_precision(cfg.hardware.matmul_precision)
