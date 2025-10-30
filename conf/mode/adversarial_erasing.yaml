@@ -8,6 +8,8 @@ train_config:
   max_iterations: 10
   heatmaps:
     base_directory: out/heatmaps
+    method: gradcam
+    method_kwargs: {}
     threshold: 0.7
     fill_color: 0
     negative_load_strategy: random

@@ -1,13 +1,26 @@
-from typing import Dict, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Optional, Sequence, Tuple, Union
 
 import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from captum.attr import LayerGradCam
+
+from pytorch_grad_cam import (GradCAM, GradCAMPlusPlus, LayerCAM, ScoreCAM,
+                              XGradCAM)
+from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
 from src.data.image_processing import (convert_to_np_array,
                                        normalize_image_to_range)
+
+
+_CAM_REGISTRY = {
+    "gradcam": GradCAM,
+    "xgradcam": XGradCAM,
+    "gradcam++": GradCAMPlusPlus,
+    "gradcamplusplus": GradCAMPlusPlus,
+    "layercam": LayerCAM,
+    "scorecam": ScoreCAM,
+}
 
 
 def generate_heatmap(
@@ -16,6 +29,8 @@ def generate_heatmap(
     *,
     target_class: Optional[int] = None,
     layer: Optional[torch.nn.Module] = None,
+    method: str = "gradcam",
+    method_kwargs: Optional[Dict[str, Any]] = None,
 ) -> torch.Tensor:
     """
     Generates a Grad-CAM heatmap for a given input image and target class.
@@ -34,8 +49,13 @@ def generate_heatmap(
             Grad-CAM heatmap is computed. If None, the model's predicted
             class is used.
         layer (torch.nn.Module, optional): The layer of the model to
-            compute Grad-CAM attributions from. If None, the last
+            compute CAM attributions from. If None, the last
             convolutional layer of the model is used.
+        method (str, optional): Name of the CAM method to use. Supported
+            values include "gradcam", "xgradcam", "gradcam++",
+            "layercam", and "scorecam".
+        method_kwargs (Dict[str, Any], optional): Additional keyword
+            arguments forwarded to the underlying CAM implementation.
 
     Returns:
         torch.Tensor: A 2D tensor of shape (H, W) representing the
@@ -65,26 +85,43 @@ def generate_heatmap(
             "No convolutional layer found. Pass `layer` explicitly."
         )
 
-        # Initialize GradCAM with the model and the specified layer
-        gradcam = LayerGradCam(model, layer)
+        cam_key = method.lower().replace("_", "").replace("-", "")
+        if cam_key not in _CAM_REGISTRY:
+            available = ", ".join(sorted(_CAM_REGISTRY.keys()))
+            raise ValueError(
+                f"Unsupported CAM method '{method}'. Available methods: {available}"
+            )
+
+        cam_cls = _CAM_REGISTRY[cam_key]
+        cam_kwargs = dict(method_kwargs or {})
+        use_cuda = next(model.parameters()).is_cuda
+
+        target_layers = [layer]
 
         # Move image to the same device as the model
         image = image.to(next(model.parameters()).device)
 
         if target_class is None:
             # Get the predicted class for the input image
-            logits = model(image)
+            with torch.inference_mode():
+                logits = model(image)
             target_class = int(torch.argmax(logits, dim=1).item())
 
-        # Compute the GradCAM attributions for the input image
-        attr = gradcam.attribute(image, target_class)
+        cam_targets = [ClassifierOutputTarget(target_class)]
 
-        # Remove batch dimension and detach from the computation graph
-        assert isinstance(attr, torch.Tensor), "Expected `attr` to be a torch.Tensor"
-        attr = attr.squeeze().detach()
+        with cam_cls(model=model, target_layers=target_layers, use_cuda=use_cuda, **cam_kwargs) as cam:  # type: ignore[arg-type]
+            grayscale_cam = cam(image, targets=cam_targets)
+
+        grayscale_cam = np.array(grayscale_cam)
+        if grayscale_cam.ndim == 3:
+            grayscale_cam = grayscale_cam[0]
+
+        heatmap = torch.from_numpy(grayscale_cam).to(
+            device=image.device, dtype=torch.float32
+        )
 
         # Remove negative values in the heatmap
-        heatmap = torch.clamp(attr, min=0)
+        heatmap = torch.clamp(heatmap, min=0)
 
         # Normalize the heatmap between 0 and 1
         max_value = torch.max(heatmap)
@@ -105,6 +142,8 @@ def generate_super_heatmap(
     sizes: Sequence[int],
     target_class: int,
     layer: Optional[torch.nn.Module] = None,
+    method: str = "gradcam",
+    method_kwargs: Optional[Dict[str, Any]] = None,
     return_intermediates: bool = False,
 ) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[int, torch.Tensor]]]:
     """
@@ -125,7 +164,11 @@ def generate_super_heatmap(
             computing individual Grad-CAM heatmaps.
         target_class (int): The class index for which Grad-CAM is computed.
         layer (torch.nn.Module, optional): The convolutional layer to use for
-            Grad-CAM. If None, the last convolutional layer of the model is used.
+            CAM. If None, the last convolutional layer of the model is used.
+        method (str, optional): Name of the CAM method to use. Defaults to
+            "gradcam".
+        method_kwargs (Dict[str, Any], optional): Additional keyword
+            arguments for the CAM implementation.
 
     Returns:
         torch.Tensor: A 2D tensor of shape `target_size` (H, W), representing
@@ -166,7 +209,12 @@ def generate_super_heatmap(
                 image, size=(s, s), mode="bilinear", align_corners=False
             )
             heatmap = generate_heatmap(
-                model, img_resized, target_class=target_class, layer=layer
+                model,
+                img_resized,
+                target_class=target_class,
+                layer=layer,
+                method=method,
+                method_kwargs=method_kwargs,
             )
             heatmap_up = (
                 F.interpolate(

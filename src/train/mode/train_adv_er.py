@@ -4,7 +4,7 @@ import math
 import os
 from datetime import datetime
 from itertools import chain
-from typing import List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import cv2
 import matplotlib.pyplot as plt
@@ -12,7 +12,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from lightning.pytorch.callbacks import ModelCheckpoint
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pytorch_grad_cam.metrics.cam_mult_image import \
     CamMultImageConfidenceChange
 from pytorch_grad_cam.metrics.road import (ROADLeastRelevantFirst,
@@ -159,6 +159,18 @@ def run(cfg: DictConfig) -> None:
     data_dir = cfg.data.directory
     train_dir = os.path.join(data_dir, "train")
 
+    heatmap_method = heatmaps_config.get("method", "gradcam")
+    method_kwargs_cfg = heatmaps_config.get("method_kwargs", {})
+    if isinstance(method_kwargs_cfg, DictConfig):
+        heatmap_method_kwargs = cast(
+            Dict[str, Any],
+            OmegaConf.to_container(method_kwargs_cfg, resolve=True),
+        )
+    elif isinstance(method_kwargs_cfg, dict):
+        heatmap_method_kwargs = cast(Dict[str, Any], method_kwargs_cfg)
+    else:
+        heatmap_method_kwargs = {}
+
     base_heatmaps_dir = heatmaps_config.base_directory
     training_size = (
         cfg.data.transforms.resize_height,
@@ -224,6 +236,8 @@ def run(cfg: DictConfig) -> None:
                 threshold=threshold,
                 fill_color=fill_color,
                 logger=logger,
+                method=heatmap_method,
+                method_kwargs=heatmap_method_kwargs,
                 device=cfg.hardware.device,
                 seed=None if base_seed is None else base_seed + iteration,
             )
@@ -357,6 +371,8 @@ def _generate_and_save_heatmaps(
     threshold: float,
     fill_color: int,
     logger: NeptuneLogger,
+    method: str,
+    method_kwargs: Optional[Dict[str, Any]] = None,
     target_class: int = 1,
     device: str = "cpu",
     seed: Optional[int] = None,
@@ -423,6 +439,8 @@ def _generate_and_save_heatmaps(
                             model,
                             img,
                             target_class=target_class,
+                            method=method,
+                            method_kwargs=method_kwargs,
                         )
                         heatmap = resize_heatmap(heatmap, target_size)
                     

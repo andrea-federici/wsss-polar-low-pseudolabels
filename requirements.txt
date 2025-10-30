@@ -3,6 +3,7 @@ lightning
 neptune
 optuna
 optuna-integration[pytorch_lightning]
+pytorch-grad-cam
 python-dotenv
 timm
 torchinfo
