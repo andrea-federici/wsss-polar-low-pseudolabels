@@ -317,11 +317,11 @@ def generate_negative_masks(
 # project:
 # PYTHONPATH=$(pwd) python3 src/post/masks.py
 if __name__ == "__main__":
-    base_heatmaps_dir = "local_save/heatmaps"
-    mask_dir = "local_save/out2_new/masks"
+    base_heatmaps_dir = "local/heatmaps"
+    mask_dir = "local/masks"
     mask_size = (512, 512)
     threshold = 0.7
-    iteration = 3
+    iteration = 5
 
     import os
 
@@ -341,20 +341,20 @@ if __name__ == "__main__":
     )
 
     # no vis
-    no_vis_dir = mask_dir + "/no_vis"
-    generate_masks(
-        base_heatmaps_dir=base_heatmaps_dir,
-        mask_dir=no_vis_dir,
-        mask_size=mask_size,
-        threshold=threshold,
-        type="multiclass",
-        iteration=iteration,
-        remove_background=False,
-        vis=False,
-    )
+    # no_vis_dir = mask_dir + "/no_vis"
+    # generate_masks(
+    #     base_heatmaps_dir=base_heatmaps_dir,
+    #     mask_dir=no_vis_dir,
+    #     mask_size=mask_size,
+    #     threshold=threshold,
+    #     type="multiclass",
+    #     iteration=iteration,
+    #     remove_background=False,
+    #     vis=False,
+    # )
 
-    generate_negative_masks(
-        negative_images_dir="data/bus/train/neg",
-        mask_dir=no_vis_dir,
-        mask_size=mask_size,
-    )
+    # generate_negative_masks(
+    #     negative_images_dir="data/bus/train/neg",
+    #     mask_dir=no_vis_dir,
+    #     mask_size=mask_size,
+    # )
