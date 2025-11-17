@@ -13,7 +13,6 @@ from src.data.adversarial_erasing_io import \
 from src.utils.constants import PYTORCH_EXTENSION
 
 
-# TODO: this does not work really well if there are black pixels next to black patch (hurricane center usually)
 def _get_blind_spot_mask(orig_img_path: str, low_thresh: int = 10) -> np.ndarray:
     """
     Reads an RGB (or RGBA) image from `orig_img_path` and returns a 2D boolean array

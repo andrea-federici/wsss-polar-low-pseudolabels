@@ -11,6 +11,7 @@ from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 from src.data.image_processing import (convert_to_np_array,
                                        normalize_image_to_range)
 
+# Available CAMs
 _CAM_REGISTRY = {
     "gradcam": GradCAM,
     "xgradcam": XGradCAM,
@@ -106,7 +107,7 @@ def generate_heatmap(
 
         cam_targets = [ClassifierOutputTarget(target_class)]
 
-        with cam_cls(model=model, target_layers=target_layers, **cam_kwargs) as cam:  # type: ignore[arg-type]
+        with cam_cls(model=model, target_layers=target_layers, **cam_kwargs) as cam:
             grayscale_cam = cam(image, targets=cam_targets)
 
         grayscale_cam = np.array(grayscale_cam)
@@ -124,120 +125,6 @@ def generate_heatmap(
         max_value = torch.max(heatmap)
         norm_heatmap = heatmap / max_value if max_value != 0 else heatmap
         return norm_heatmap
-
-    finally:
-        if was_training:
-            model.train()
-
-
-# When using this method we want to pass the image at the highest possible resolution
-def generate_super_heatmap(
-    model: torch.nn.Module,
-    image: torch.Tensor,
-    *,
-    target_size: Tuple[int, int],  # (H, W)
-    sizes: Sequence[int],
-    target_class: int,
-    layer: Optional[torch.nn.Module] = None,
-    method: str = "gradcam",
-    method_kwargs: Optional[Dict[str, Any]] = None,
-    return_intermediates: bool = False,
-) -> Union[torch.Tensor, Tuple[torch.Tensor, Dict[int, torch.Tensor]]]:
-    """
-    Generates a multi-scale (super) Grad-CAM heatmap by computing Grad-CAM
-    at multiple input resolutions and averaging the results. The final heatmap
-    is normalized between 0 and 1.
-
-    Args:
-        model (torch.nn.Module): The model for which Grad-CAM is computed.
-            If `layer` is not provided, the model must implement a
-            `get_last_conv_layer()` method.
-        image (torch.Tensor): Input image tensor of shape (1, C, H, W). Be sure to pass
-            the image at the highest available resolution.
-        target_size (Tuple[int, int]): The target (height, width) of the
-            final output heatmap.
-        sizes (Sequence[int]): A list of integers specifying the spatial
-            resolutions (s x s) to which the input image is resized before
-            computing individual Grad-CAM heatmaps.
-        target_class (int): The class index for which Grad-CAM is computed.
-        layer (torch.nn.Module, optional): The convolutional layer to use for
-            CAM. If None, the last convolutional layer of the model is used.
-        method (str, optional): Name of the CAM method to use. Defaults to
-            "gradcam".
-        method_kwargs (Dict[str, Any], optional): Additional keyword
-            arguments for the CAM implementation.
-
-    Returns:
-        torch.Tensor: A 2D tensor of shape `target_size` (H, W), representing
-            the normalized super-resolution Grad-CAM heatmap with values in [0, 1].
-
-    Raises:
-        ValueError: If `image` is not a 4D tensor of shape (1, C, H, W),
-            or if `sizes` contains invalid values.
-    """
-    if image.dim() != 4:
-        raise ValueError(
-            f"Expected image to be a 4D tensor (1, C, H, W), but "
-            f"got shape {image.shape}"
-        )
-
-    if not all(isinstance(s, int) and s > 0 for s in sizes):
-        raise ValueError("All elements in `sizes` must be positive integers.")
-
-    # Move image to the same device as the model
-    image = image.to(next(model.parameters()).device)
-
-    was_training = model.training
-    model.eval()
-    model.zero_grad()
-
-    try:
-        # If no layer is specified, use the last layer of the feature
-        # extractor
-        if layer is None:
-            layer = model.get_last_conv_layer()
-
-        H, W = target_size
-        resized_heatmaps = []
-        intermediates: Dict[int, torch.Tensor] = {}
-
-        for s in sizes:
-            img_resized = F.interpolate(
-                image, size=(s, s), mode="bilinear", align_corners=False
-            )
-            heatmap = generate_heatmap(
-                model,
-                img_resized,
-                target_class=target_class,
-                layer=layer,
-                method=method,
-                method_kwargs=method_kwargs,
-            )
-            heatmap_up = (
-                F.interpolate(
-                    heatmap.unsqueeze(0).unsqueeze(0),
-                    size=(H, W),
-                    mode="bilinear",
-                    align_corners=False,
-                )
-                .squeeze(0)
-                .squeeze(0)
-            )
-            resized_heatmaps.append(heatmap_up)
-            if return_intermediates:
-                intermediates[int(s)] = heatmap_up.detach()
-
-        stacked = torch.stack(resized_heatmaps, dim=0)
-        mean_heatmap = stacked.mean(dim=0)
-
-        hmin = mean_heatmap.min()
-        hmax = mean_heatmap.max()
-        denom = (hmax - hmin).clamp_min(1e-6)
-        super_heatmap = (mean_heatmap - hmin) / denom
-
-        if return_intermediates:
-            return super_heatmap, intermediates
-        return super_heatmap
 
     finally:
         if was_training:

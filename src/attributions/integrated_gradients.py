@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Optional, Tuple
 
 import cv2
 import numpy as np
@@ -12,10 +12,9 @@ def generate_heatmap(
     model: torch.nn.Module,
     image: torch.Tensor,
     *,
-    target_class: int = None,
+    target_class: Optional[int] = None,
     n_steps: int = 50,
     baseline=None,
-    device: str = "cpu",
 ) -> torch.Tensor:
     """
     Generates an Integrated Gradients heatmap for a given model and input image.
@@ -27,7 +26,6 @@ def generate_heatmap(
             If None, uses the predicted class.
         n_steps (int): Number of steps for IG path integral approximation.
         baseline (torch.Tensor, optional): Baseline input tensor. Defaults to a black image.
-        device (str, optional): The device to run the computations on. Defaults to "cpu".
 
     Returns:
         torch.Tensor: A 2D heatmap tensor of shape (H, W), normalized to [0, 1].
@@ -43,7 +41,9 @@ def generate_heatmap(
     model.eval()
 
     try:
-        image = image.to(device)  # Move image to the same device as the model
+        # Move image to the same device as the model
+        model_device = next(model.parameters()).device
+        image = image.to(model_device)
 
         if baseline is None:
             baseline = torch.zeros_like(
@@ -122,10 +122,10 @@ def generate_mask_from_heatmap(
             "{image.shape}"
         )
 
-    heatmap = heatmap.detach().cpu().numpy()
+    heatmap_np = heatmap.detach().cpu().numpy()
 
     _, _, H, W = image.shape
-    heatmap_resized = cv2.resize(heatmap, (W, H), interpolation=cv2.INTER_LINEAR)
+    heatmap_resized = cv2.resize(heatmap_np, (W, H), interpolation=cv2.INTER_LINEAR)
 
     # Binarize the heatmap using a threshold calculated based on the percentile
     heatmap_flattened = heatmap_resized.flatten()

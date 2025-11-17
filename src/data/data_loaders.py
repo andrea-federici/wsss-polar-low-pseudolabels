@@ -60,6 +60,7 @@ def create_data_loaders(
             Defaults to "standard".
         pin_memory (bool, optional): If True, the data loader will copy Tensors into CUDA pinned memory
             before returning them. Useful when using GPU training. Defaults to False.
+        seed (Optional[int], optional): Seed for deterministic splits and random sampling. Defaults to None.
 
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: A tuple containing:
@@ -185,6 +186,7 @@ def create_class_dataloader(
         dataset_type (str, optional): Type of dataset to load. Must be a key in `_DATASET_REGISTRY`.
             Defaults to "standard".
         shuffle (bool, optional): Whether to shuffle the data each epoch. Defaults to False.
+        seed (Optional[int], optional): Seed for shuffling and worker initialization. Defaults to None.
 
     Returns:
         DataLoader: A DataLoader containing only the samples of the specified target class.

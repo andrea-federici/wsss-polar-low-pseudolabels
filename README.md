@@ -1,3 +1,5 @@
-This is the README file for my thesis project.
+# wsss-polar-low-pseudolabels
 
-**Thesis**: Deep Learning for Detection and Early Forecasting of Polar Lows Using High-Resolution Satellite Data
+**Stage 1: Pseudo-label Generation for Weakly Supervised Polar Low Segmentation in Sentinel-1 SAR Imagery**
+
+![Pipeline Overview](images/pipeline_overview.png)

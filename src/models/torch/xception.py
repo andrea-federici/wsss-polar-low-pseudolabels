@@ -44,7 +44,7 @@ class Xception(nn.Module):
         x = self.classifier(pooled_features)
         return x
 
-    def get_last_conv_layer(self):
+    def get_last_conv_layer(self) -> nn.Module:
         last_conv = None
         for _, layer in reversed(list(self.feature_extractor.named_modules())):
             # We are interested in the last pointwise convolution layer

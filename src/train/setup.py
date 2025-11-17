@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from src.data.augmentation import to_aug_config, to_compose
 from src.data.data_loaders import create_data_loaders
 from src.models.configs import AdversarialErasingBaseConfig
-from src.models.erase_strategies import HeatmapEraseStrategy, MaskEraseStrategy
+from src.models.erase_strategies import HeatmapEraseStrategy
 from src.train.logger import create_neptune_logger
 from src.utils.getters import (criterion_getter, lightning_model_getter,
                                lr_scheduler_getter, optimizer_getter,
@@ -102,17 +102,6 @@ def setup_training(cfg: DictConfig, *, iteration: Optional[int] = None) -> Train
                 iteration=iteration,
                 aug_config=aug_config,
                 erase_strategy=heatmap_erase_strategy,
-            )
-        elif cfg.mode.erase_strategy == "mask":
-            mask_erase_strategy = MaskEraseStrategy(
-                base_dir=cfg.mode.train_config.heatmaps.base_directory,
-                fill_color=cfg.mode.train_config.heatmaps.fill_color,
-                negative_load_strategy=cfg.mode.train_config.heatmaps.negative_load_strategy,
-            )
-            model_config = AdversarialErasingBaseConfig(
-                iteration=iteration,
-                aug_config=aug_config,
-                erase_strategy=mask_erase_strategy,
             )
         else:
             raise ValueError(
