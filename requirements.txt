@@ -6,4 +6,4 @@ python-dotenv
 timm
 torchinfo
 
-# TODO: list needs to be updated
+# TODO: list to be updated
