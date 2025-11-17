@@ -4,14 +4,12 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-
 from pytorch_grad_cam import (GradCAM, GradCAMPlusPlus, LayerCAM, ScoreCAM,
                               XGradCAM)
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
 from src.data.image_processing import (convert_to_np_array,
                                        normalize_image_to_range)
-
 
 _CAM_REGISTRY = {
     "gradcam": GradCAM,
@@ -94,7 +92,6 @@ def generate_heatmap(
 
         cam_cls = _CAM_REGISTRY[cam_key]
         cam_kwargs = dict(method_kwargs or {})
-        use_cuda = next(model.parameters()).is_cuda
 
         target_layers = [layer]
 
@@ -109,7 +106,7 @@ def generate_heatmap(
 
         cam_targets = [ClassifierOutputTarget(target_class)]
 
-        with cam_cls(model=model, target_layers=target_layers, use_cuda=use_cuda, **cam_kwargs) as cam:  # type: ignore[arg-type]
+        with cam_cls(model=model, target_layers=target_layers, **cam_kwargs) as cam:  # type: ignore[arg-type]
             grayscale_cam = cam(image, targets=cam_targets)
 
         grayscale_cam = np.array(grayscale_cam)
